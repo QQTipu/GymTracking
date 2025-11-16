@@ -1,0 +1,36 @@
+Jour,Type,Exercice,Séries,Répétitions (RPE),Notes
+1,PUSH #1,Développé incliné haltères ou barre,3,6-8 (RPE 8.5),Focus Haut des Pecs
+1,PUSH #1,Développé couché machine ou barre,3,8-10 (RPE 9),
+1,PUSH #1,Élévations latérales aux câbles,3,12-15 (RPE 9),Isoler le deltoïde latéral
+1,PUSH #1,Développé militaire haltères assis,3,8-10 (RPE 8),
+1,PUSH #1,Extension triceps barre EZ au front,3,10-12 (RPE 9),
+1,PUSH #1,Extension triceps poulie corde,3,15-20 (RPE 9),Finir avec un volume élevé
+2,PULL #1,Tractions lestées ou Tirage vertical,3,6-10 (RPE 9),Focus Lats (Largeur)
+2,PULL #1,Row penché barre ou haltères,3,8-10 (RPE 8.5),Focus Épaisseur
+2,PULL #1,Tirage horizontal machine (prise neutre),3,10-12 (RPE 9),
+2,PULL #1,Shrugs avec haltères ou barre,3,10-15 (RPE 9),Trapèzes
+2,PULL #1,Curl barre ou haltères,3,8-12 (RPE 9),Biceps
+2,PULL #1,Curl marteau aux haltères,3,12-15 (RPE 9),Brachial et avant-bras
+3,LEGS #1,Squat barre,4,5-8 (RPE 8-9),Mouvement composé lourd
+3,LEGS #1,Presse à cuisses,3,10-15 (RPE 9),Volume Quads
+3,LEGS #1,Leg Extension,3,15-20 (RPE 9.5),"Isoler Quads, aller proche de l'échec"
+3,LEGS #1,Mollets debout machine,4,10-15 (RPE 9),
+3,LEGS #1,Crunch au câble,3,15-20,Abdominaux
+4,PUSH #2,Développé couché barre,3,5-8 (RPE 8.5),Mouvement composé lourd
+4,PUSH #2,Écartés machine ou haltères,3,10-15 (RPE 9),Finisher Pecs
+4,PUSH #2,Élévations latérales haltères assis,3,12-15 (RPE 9),Isoler deltoïde latéral
+4,PUSH #2,Face Pulls,3,15-20 (RPE 9),Santé des épaules
+4,PUSH #2,Dips lestés ou machine,3,8-12 (RPE 9),Triceps
+4,PUSH #2,Extension triceps au-dessus de la tête,3,10-15 (RPE 9),Longue Portion Triceps
+5,PULL #2,Soulevé de Terre Roumain (RDL),3,8-12 (RPE 8),Ischios / Fessiers
+5,PULL #2,Tirage machine prise large,3,10-12 (RPE 9),Accent sur les Lats
+5,PULL #2,Row Yates (Barre) ou machine,3,8-10 (RPE 8.5),Accent sur l'épaisseur
+5,PULL #2,Machine Reverse Fly ou Rear Delt aux câbles,3,15-20 (RPE 9),Arrières d'épaules
+5,PULL #2,Curl Incliné haltères,3,8-12 (RPE 9),Biceps (étirement)
+5,PULL #2,Curl concentration,3,12-15 (RPE 9),Biceps (peak contraction)
+6,LEGS #2,Fentes (marchées ou statiques),3,10-12 par jambe (RPE 8.5),Unilatéral
+6,LEGS #2,Leg Curl (assis ou allongé),3,10-15 (RPE 9),Ischios
+6,LEGS #2,Hip Thrust (Poussée de hanche),3,8-12 (RPE 8.5),Fessiers
+6,LEGS #2,Mollets assis machine,4,15-20 (RPE 9),
+6,LEGS #2,Planche lestée ou Ab Wheel,3,Au max/10-15 reps,Sangle abdominale
+7,Repos,,,,
