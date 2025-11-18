@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import plotly.express as px
-import hashlib
+from supabase import create_client, Client
 import os
 
 # Configuration de la page
@@ -14,81 +14,167 @@ st.set_page_config(
     layout="wide"
 )
 
-# ============= SYSTÈME D'AUTHENTIFICATION =============
+# ============= CONFIGURATION SUPABASE =============
+# À configurer dans Streamlit Cloud Secrets ou .streamlit/secrets.toml
+try:
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+    
+    # Initialiser sans session au début
+    if 'supabase_client' not in st.session_state:
+        st.session_state.supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    
+    supabase = st.session_state.supabase_client
+except Exception as e:
+    st.error("⚠️ Configuration Supabase manquante. Voir les instructions dans le README.")
+    st.stop()
 
-def hash_password(password):
-    """Hash un mot de passe avec SHA256"""
-    return hashlib.sha256(password.encode()).hexdigest()
+# ============= FONCTIONS SUPABASE =============
 
-def load_users():
-    """Charge les utilisateurs depuis le fichier"""
+def create_user_account(username, password):
+    """Crée un compte utilisateur dans Supabase Auth"""
     try:
-        with open('users.json', 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
+        # Créer l'utilisateur avec email fictif (username@workout.app)
+        email = f"{username}@workout.app"
+        response = supabase.auth.sign_up({
+            "email": email,
+            "password": password,
+            "options": {
+                "data": {
+                    "username": username
+                },
+                "email_redirect_to": None
+            }
+        })
+        if response.user:
+            return True, "Compte créé avec succès !"
+        return False, "Erreur lors de la création du compte"
+    except Exception as e:
+        error_msg = str(e)
+        if "User already registered" in error_msg:
+            return False, "Ce nom d'utilisateur existe déjà"
+        return False, f"Erreur : {error_msg}"
 
-def save_users(users):
-    """Sauvegarde les utilisateurs"""
-    with open('users.json', 'w') as f:
-        json.dump(users, f, indent=2)
+def login_user(username, password):
+    """Connecte un utilisateur"""
+    try:
+        email = f"{username}@workout.app"
+        response = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+        if response.user and response.session:
+            # Mettre à jour le client avec le token d'accès
+            supabase.postgrest.auth(response.session.access_token)
+            return response.user, response.session, None
+        return None, None, "Identifiants incorrects"
+    except Exception as e:
+        error_msg = str(e)
+        if "Invalid login credentials" in error_msg:
+            return None, None, "Identifiants incorrects"
+        elif "Email not confirmed" in error_msg:
+            return None, None, "Email non confirmé. Vérifiez la configuration Supabase."
+        return None, None, f"Erreur : {error_msg}"
 
-def create_user(username, password):
-    """Crée un nouvel utilisateur"""
-    users = load_users()
-    if username in users:
+def logout_user():
+    """Déconnecte l'utilisateur"""
+    try:
+        supabase.auth.sign_out()
+    except:
+        pass
+
+def save_workout_data(user_id, data):
+    """Sauvegarde les données d'entraînement de l'utilisateur"""
+    try:
+        # Vérifier si l'utilisateur existe déjà
+        result = supabase.table('user_data').select("*").eq('user_id', user_id).execute()
+        
+        if len(result.data) > 0:
+            # Mise à jour
+            supabase.table('user_data').update({
+                'workout_data': data,
+                'updated_at': datetime.now().isoformat()
+            }).eq('user_id', user_id).execute()
+        else:
+            # Insertion
+            supabase.table('user_data').insert({
+                'user_id': user_id,
+                'workout_data': data,
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
+            }).execute()
+        return True
+    except Exception as e:
+        st.error(f"Erreur sauvegarde: {str(e)}")
         return False
-    users[username] = {
-        'password': hash_password(password),
-        'created_at': datetime.now().isoformat()
-    }
-    save_users(users)
-    return True
 
-def verify_user(username, password):
-    """Vérifie les identifiants d'un utilisateur"""
-    users = load_users()
-    if username not in users:
-        return False
-    return users[username]['password'] == hash_password(password)
+def load_workout_data(user_id):
+    """Charge les données d'entraînement de l'utilisateur"""
+    try:
+        result = supabase.table('user_data').select("workout_data").eq('user_id', user_id).execute()
+        if len(result.data) > 0:
+            return result.data[0]['workout_data']
+        return None
+    except Exception as e:
+        st.error(f"Erreur chargement: {str(e)}")
+        return None
+
+# ============= INTERFACE DE CONNEXION =============
 
 def login_page():
     """Affiche la page de connexion"""
     st.title("🔐 Connexion - Tracker Musculation")
     
+    st.markdown("""
+    ### 📊 Suivi de performance en musculation
+    Trackez vos séances, suivez votre progression, atteignez vos objectifs ! 💪
+    """)
+    
     tab1, tab2 = st.tabs(["Se connecter", "Créer un compte"])
     
     with tab1:
         st.subheader("Connexion")
-        username = st.text_input("Nom d'utilisateur", key="login_username")
-        password = st.text_input("Mot de passe", type="password", key="login_password")
-        
-        if st.button("Se connecter", type="primary"):
-            if verify_user(username, password):
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                st.success("✅ Connexion réussie !")
-                st.rerun()
-            else:
-                st.error("❌ Identifiants incorrects")
+        with st.form("login_form"):
+            username = st.text_input("Nom d'utilisateur")
+            password = st.text_input("Mot de passe", type="password")
+            submit = st.form_submit_button("Se connecter", type="primary", use_container_width=True)
+            
+            if submit:
+                if not username or not password:
+                    st.error("❌ Veuillez remplir tous les champs")
+                else:
+                    user, session, error = login_user(username, password)
+                    if user and session:
+                        st.session_state.logged_in = True
+                        st.session_state.user = user
+                        st.session_state.session = session
+                        st.session_state.username = username
+                        st.success("✅ Connexion réussie !")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {error}")
     
     with tab2:
         st.subheader("Créer un compte")
-        new_username = st.text_input("Nom d'utilisateur", key="signup_username")
-        new_password = st.text_input("Mot de passe", type="password", key="signup_password")
-        confirm_password = st.text_input("Confirmer le mot de passe", type="password", key="signup_confirm")
-        
-        if st.button("Créer le compte", type="primary"):
-            if not new_username or not new_password:
-                st.error("❌ Veuillez remplir tous les champs")
-            elif len(new_password) < 6:
-                st.error("❌ Le mot de passe doit contenir au moins 6 caractères")
-            elif new_password != confirm_password:
-                st.error("❌ Les mots de passe ne correspondent pas")
-            elif create_user(new_username, new_password):
-                st.success("✅ Compte créé avec succès ! Vous pouvez maintenant vous connecter.")
-            else:
-                st.error("❌ Ce nom d'utilisateur existe déjà")
+        with st.form("signup_form"):
+            new_username = st.text_input("Nom d'utilisateur", key="signup_username")
+            new_password = st.text_input("Mot de passe (min. 6 caractères)", type="password", key="signup_password")
+            confirm_password = st.text_input("Confirmer le mot de passe", type="password")
+            submit = st.form_submit_button("Créer le compte", type="primary", use_container_width=True)
+            
+            if submit:
+                if not new_username or not new_password:
+                    st.error("❌ Veuillez remplir tous les champs")
+                elif len(new_password) < 6:
+                    st.error("❌ Le mot de passe doit contenir au moins 6 caractères")
+                elif new_password != confirm_password:
+                    st.error("❌ Les mots de passe ne correspondent pas")
+                else:
+                    success, message = create_user_account(new_username, new_password)
+                    if success:
+                        st.success(f"✅ {message} Vous pouvez maintenant vous connecter.")
+                    else:
+                        st.error(f"❌ {message}")
 
 # Initialiser l'état de connexion
 if 'logged_in' not in st.session_state:
@@ -100,13 +186,6 @@ if not st.session_state.logged_in:
     st.stop()
 
 # ============= APPLICATION PRINCIPALE =============
-
-# Fonction pour obtenir le chemin du fichier utilisateur
-def get_user_file(filename):
-    """Retourne le chemin du fichier pour l'utilisateur connecté"""
-    user_dir = f"user_data/{st.session_state.username}"
-    os.makedirs(user_dir, exist_ok=True)
-    return os.path.join(user_dir, filename)
 
 # Charger le programme depuis le CSV
 @st.cache_data
@@ -127,31 +206,30 @@ if 'start_date' not in st.session_state:
 if 'skipped_days' not in st.session_state:
     st.session_state.skipped_days = []
 
-# Fonction pour sauvegarder toutes les données (par utilisateur)
+if 'data_loaded' not in st.session_state:
+    st.session_state.data_loaded = False
+
+# Charger les données depuis Supabase
+if not st.session_state.data_loaded:
+    # S'assurer que le client utilise le bon token
+    if 'session' in st.session_state and st.session_state.session:
+        supabase.postgrest.auth(st.session_state.session.access_token)
+    
+    data = load_workout_data(st.session_state.user.id)
+    if data:
+        st.session_state.history = data.get('history', {})
+        st.session_state.start_date = data.get('start_date', datetime.now().strftime("%Y-%m-%d"))
+        st.session_state.skipped_days = data.get('skipped_days', [])
+    st.session_state.data_loaded = True
+
+# Fonction pour sauvegarder toutes les données
 def save_all_data():
     data = {
         'history': st.session_state.history,
         'start_date': st.session_state.start_date,
         'skipped_days': st.session_state.skipped_days
     }
-    with open(get_user_file('workout_data.json'), 'w') as f:
-        json.dump(data, f, indent=2)
-
-# Fonction pour charger toutes les données (par utilisateur)
-def load_all_data():
-    try:
-        with open(get_user_file('workout_data.json'), 'r') as f:
-            data = json.load(f)
-            st.session_state.history = data.get('history', {})
-            st.session_state.start_date = data.get('start_date', datetime.now().strftime("%Y-%m-%d"))
-            st.session_state.skipped_days = data.get('skipped_days', [])
-    except FileNotFoundError:
-        st.session_state.history = {}
-        st.session_state.start_date = datetime.now().strftime("%Y-%m-%d")
-        st.session_state.skipped_days = []
-
-# Charger les données au démarrage
-load_all_data()
+    return save_workout_data(st.session_state.user.id, data)
 
 # Fonction pour calculer le jour du programme selon la date
 def get_program_day(date):
@@ -188,8 +266,8 @@ with col1:
 with col2:
     st.write(f"👤 {st.session_state.username}")
     if st.button("🚪 Déconnexion"):
-        st.session_state.logged_in = False
-        st.session_state.username = None
+        logout_user()
+        st.session_state.clear()
         st.rerun()
 
 st.markdown("---")
@@ -219,9 +297,9 @@ if page == "⚙️ Configuration":
         
         if st.button("💾 Mettre à jour la date de début"):
             st.session_state.start_date = new_start_date.strftime("%Y-%m-%d")
-            save_all_data()
-            st.success("✅ Date de début mise à jour !")
-            st.rerun()
+            if save_all_data():
+                st.success("✅ Date de début mise à jour !")
+                st.rerun()
     
     with col2:
         st.info(f"**Date actuelle de début:** {st.session_state.start_date}")
@@ -367,9 +445,9 @@ elif page == "📅 Séance du jour":
                         'weights': st.session_state.current_weights.copy(),
                         'timestamp': datetime.now().isoformat()
                     }
-                    save_all_data()
-                    st.success("✅ Séance enregistrée avec succès !")
-                    st.balloons()
+                    if save_all_data():
+                        st.success("✅ Séance enregistrée avec succès !")
+                        st.balloons()
 
 # PAGE: Historique
 elif page == "📊 Historique":
@@ -595,9 +673,11 @@ st.sidebar.info(
     3. ⏭️ Skippez si besoin (décale auto)
     4. 📊 Consultez votre historique
     5. 📈 Suivez votre progression
+    
+    💾 Données sauvegardées dans le cloud !
     """
 )
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.caption("💪 Tracker de Musculation v3.0")
+st.sidebar.caption("💪 Tracker de Musculation v4.0 - Powered by Supabase")

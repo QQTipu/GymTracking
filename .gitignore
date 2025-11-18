@@ -1,5 +1,4 @@
-users.json
-user_data/
+.streamlit/secrets.toml
 *.pyc
 __pycache__/
 .env
