@@ -507,141 +507,301 @@ elif page == "📈 Statistiques":
     if not st.session_state.history:
         st.info("Aucune donnée disponible. Enregistrez vos séances pour voir vos statistiques.")
     else:
-        # Sélection de l'exercice à analyser
-        all_exercises = df_programme[df_programme['Type'] != 'Repos']['Exercice'].unique()
+        # Onglets pour différentes vues
+        tab1, tab2 = st.tabs(["📊 Par exercice", "📈 Volume global"])
         
-        selected_exercise = st.selectbox(
-            "Choisir un exercice",
-            options=all_exercises
-        )
+        with tab1:
+            # Sélection de l'exercice à analyser
+            all_exercises = df_programme[df_programme['Type'] != 'Repos']['Exercice'].unique()
+            
+            selected_exercise = st.selectbox(
+                "Choisir un exercice",
+                options=all_exercises
+            )
+            
+            if selected_exercise:
+                # Collecter les données pour cet exercice
+                exercise_data = []
+                
+                for date_str, session in sorted(st.session_state.history.items()):
+                    weights = session['weights']
+                    day_number = session['day_number']
+                    
+                    # Trouver l'exercice dans le programme du jour
+                    day_workout = df_programme[df_programme['Jour'] == day_number]
+                    exercise_row = day_workout[day_workout['Exercice'] == selected_exercise]
+                    
+                    if not exercise_row.empty:
+                        idx = exercise_row.index[0]
+                        
+                        # Collecter les poids pour cet exercice
+                        exercise_weights = []
+                        for key, weight in weights.items():
+                            # Vérifier que la clé correspond exactement à l'exercice
+                            parts = key.split('_')
+                            if len(parts) >= 3 and parts[1] == str(idx) and weight > 0:
+                                exercise_weights.append(weight)
+                        
+                        if exercise_weights:
+                            exercise_data.append({
+                                'date': date_str,
+                                'max_weight': max(exercise_weights),
+                                'avg_weight': sum(exercise_weights) / len(exercise_weights),
+                                'total_volume': sum(exercise_weights) * len(exercise_weights)
+                            })
+                
+                if exercise_data:
+                    df_stats = pd.DataFrame(exercise_data)
+                    df_stats['date'] = pd.to_datetime(df_stats['date'])
+                    
+                    # Regrouper par date en prenant la valeur maximale pour chaque date
+                    df_stats = df_stats.groupby('date').agg({
+                        'max_weight': 'max',
+                        'avg_weight': 'mean',
+                        'total_volume': 'sum'
+                    }).reset_index()
+                    
+                    df_stats = df_stats.sort_values('date')
+                    
+                    # Graphique de progression
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Charge maximale
+                        fig_max = go.Figure()
+                        fig_max.add_trace(go.Scatter(
+                            x=df_stats['date'],
+                            y=df_stats['max_weight'],
+                            mode='lines+markers',
+                            name='Charge max',
+                            line=dict(color='#FF6B6B', width=3),
+                            marker=dict(size=8)
+                        ))
+                        fig_max.update_layout(
+                            title="Charge maximale",
+                            xaxis_title="Date",
+                            yaxis_title="Poids (kg)",
+                            hovermode='x unified',
+                            xaxis=dict(
+                                tickformat='%d-%m-%Y'
+                            )
+                        )
+                        st.plotly_chart(fig_max, use_container_width=True)
+                    
+                    with col2:
+                        # Charge moyenne
+                        fig_avg = go.Figure()
+                        fig_avg.add_trace(go.Scatter(
+                            x=df_stats['date'],
+                            y=df_stats['avg_weight'],
+                            mode='lines+markers',
+                            name='Charge moyenne',
+                            line=dict(color='#4ECDC4', width=3),
+                            marker=dict(size=8)
+                        ))
+                        fig_avg.update_layout(
+                            title="Charge moyenne",
+                            xaxis_title="Date",
+                            yaxis_title="Poids (kg)",
+                            hovermode='x unified',
+                            xaxis=dict(
+                                tickformat='%d-%m-%Y'
+                            )
+                        )
+                        st.plotly_chart(fig_avg, use_container_width=True)
+                    
+                    # Volume pour cet exercice
+                    fig_volume = go.Figure()
+                    fig_volume.add_trace(go.Bar(
+                        x=df_stats['date'],
+                        y=df_stats['total_volume'],
+                        name='Volume total',
+                        marker_color='#95E1D3'
+                    ))
+                    fig_volume.update_layout(
+                        title=f"Volume total - {selected_exercise}",
+                        xaxis_title="Date",
+                        yaxis_title="Volume (kg)",
+                        xaxis=dict(
+                            tickformat='%d-%m-%Y'
+                        )
+                    )
+                    st.plotly_chart(fig_volume, use_container_width=True)
+                    
+                    # Statistiques récapitulatives
+                    st.markdown("---")
+                    st.subheader("📊 Récapitulatif")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric(
+                            "Record personnel",
+                            f"{df_stats['max_weight'].max():.1f} kg"
+                        )
+                    
+                    with col2:
+                        st.metric(
+                            "Charge moyenne",
+                            f"{df_stats['avg_weight'].mean():.1f} kg"
+                        )
+                    
+                    with col3:
+                        if len(df_stats) > 1:
+                            progression = ((df_stats['max_weight'].iloc[-1] - df_stats['max_weight'].iloc[0]) 
+                                           / df_stats['max_weight'].iloc[0] * 100)
+                            st.metric(
+                                "Progression",
+                                f"{progression:.1f}%"
+                            )
+                        else:
+                            st.metric("Progression", "N/A")
+                    
+                    with col4:
+                        st.metric(
+                            "Séances total",
+                            len(df_stats)
+                        )
+                    
+                else:
+                    st.warning(f"Aucune donnée enregistrée pour l'exercice: {selected_exercise}")
         
-        if selected_exercise:
-            # Collecter les données pour cet exercice
-            exercise_data = []
+        with tab2:
+            st.subheader("Volume d'entraînement global")
+            
+            # Calculer le volume total par séance avec type
+            volume_data = []
             
             for date_str, session in sorted(st.session_state.history.items()):
                 weights = session['weights']
-                day_number = session['day_number']
+                workout_type = session['workout_type']
                 
-                # Trouver l'exercice dans le programme du jour
-                day_workout = df_programme[df_programme['Jour'] == day_number]
-                exercise_row = day_workout[day_workout['Exercice'] == selected_exercise]
+                # Calculer le volume total de la séance
+                total_volume = sum([w for w in weights.values() if w > 0])
                 
-                if not exercise_row.empty:
-                    idx = exercise_row.index[0]
-                    
-                    # Collecter les poids pour cet exercice
-                    exercise_weights = []
-                    for key, weight in weights.items():
-                        if str(idx) in key and weight > 0:
-                            exercise_weights.append(weight)
-                    
-                    if exercise_weights:
-                        exercise_data.append({
-                            'date': date_str,
-                            'max_weight': max(exercise_weights),
-                            'avg_weight': sum(exercise_weights) / len(exercise_weights),
-                            'total_volume': sum(exercise_weights) * len(exercise_weights)
-                        })
+                # Déterminer la catégorie
+                if 'PUSH' in workout_type:
+                    category = 'PUSH'
+                    color = '#FF6B6B'
+                elif 'PULL' in workout_type:
+                    category = 'PULL'
+                    color = '#4ECDC4'
+                elif 'LEGS' in workout_type or 'LEG' in workout_type:
+                    category = 'LEGS'
+                    color = '#95E1D3'
+                else:
+                    category = 'Autre'
+                    color = '#A8A8A8'
+                
+                volume_data.append({
+                    'date': date_str,
+                    'volume': total_volume,
+                    'type': category,
+                    'color': color,
+                    'workout_name': workout_type
+                })
             
-            if exercise_data:
-                df_stats = pd.DataFrame(exercise_data)
-                df_stats['date'] = pd.to_datetime(df_stats['date'])
-                df_stats = df_stats.sort_values('date')
+            if volume_data:
+                df_volume = pd.DataFrame(volume_data)
+                df_volume['date'] = pd.to_datetime(df_volume['date'])
                 
-                # Graphique de progression
-                col1, col2 = st.columns(2)
+                # Regrouper par date et type pour éviter les doublons
+                df_volume = df_volume.groupby(['date', 'type', 'color']).agg({
+                    'volume': 'sum',
+                    'workout_name': 'first'
+                }).reset_index()
                 
-                with col1:
-                    # Charge maximale
-                    fig_max = go.Figure()
-                    fig_max.add_trace(go.Scatter(
-                        x=df_stats['date'],
-                        y=df_stats['max_weight'],
-                        mode='lines+markers',
-                        name='Charge max',
-                        line=dict(color='#FF6B6B', width=3),
-                        marker=dict(size=8)
-                    ))
-                    fig_max.update_layout(
-                        title="Charge maximale",
-                        xaxis_title="Date",
-                        yaxis_title="Poids (kg)",
-                        hovermode='x unified'
-                    )
-                    st.plotly_chart(fig_max, use_container_width=True)
+                df_volume = df_volume.sort_values('date')
                 
-                with col2:
-                    # Charge moyenne
-                    fig_avg = go.Figure()
-                    fig_avg.add_trace(go.Scatter(
-                        x=df_stats['date'],
-                        y=df_stats['avg_weight'],
-                        mode='lines+markers',
-                        name='Charge moyenne',
-                        line=dict(color='#4ECDC4', width=3),
-                        marker=dict(size=8)
-                    ))
-                    fig_avg.update_layout(
-                        title="Charge moyenne",
-                        xaxis_title="Date",
-                        yaxis_title="Poids (kg)",
-                        hovermode='x unified'
-                    )
-                    st.plotly_chart(fig_avg, use_container_width=True)
+                # Créer le graphique avec code couleur
+                fig_global = go.Figure()
                 
-                # Volume total
-                fig_volume = go.Figure()
-                fig_volume.add_trace(go.Bar(
-                    x=df_stats['date'],
-                    y=df_stats['total_volume'],
-                    name='Volume total',
-                    marker_color='#95E1D3'
-                ))
-                fig_volume.update_layout(
-                    title="Volume total d'entraînement",
+                # Ajouter une barre pour chaque type
+                for workout_type in ['PUSH', 'PULL', 'LEGS', 'Autre']:
+                    df_type = df_volume[df_volume['type'] == workout_type]
+                    if not df_type.empty:
+                        fig_global.add_trace(go.Bar(
+                            x=df_type['date'],
+                            y=df_type['volume'],
+                            name=workout_type,
+                            marker_color=df_type['color'].iloc[0],
+                            hovertemplate='<b>%{x|%d/%m/%Y}</b><br>' +
+                                        'Volume: %{y:.0f} kg<br>' +
+                                        '<extra></extra>'
+                        ))
+                
+                fig_global.update_layout(
+                    title="Volume total par séance",
                     xaxis_title="Date",
-                    yaxis_title="Volume (kg)",
+                    yaxis_title="Volume total (kg)",
+                    barmode='group',
+                    hovermode='x unified',
+                    legend=dict(
+                        title="Type de séance",
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    ),
+                    xaxis=dict(
+                        tickformat='%d-%m-%Y',
+                        dtick=86400000.0  # 1 jour en millisecondes
+                    ),
+                    height=500
                 )
-                st.plotly_chart(fig_volume, use_container_width=True)
                 
-                # Statistiques récapitulatives
+                st.plotly_chart(fig_global, use_container_width=True)
+                
+                # Statistiques globales
                 st.markdown("---")
-                st.subheader("📊 Récapitulatif")
+                st.subheader("📊 Statistiques globales")
                 
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
                     st.metric(
-                        "Record personnel",
-                        f"{df_stats['max_weight'].max():.1f} kg"
+                        "Volume total",
+                        f"{df_volume['volume'].sum():.0f} kg"
                     )
                 
                 with col2:
                     st.metric(
-                        "Charge moyenne",
-                        f"{df_stats['avg_weight'].mean():.1f} kg"
+                        "Volume moyen/séance",
+                        f"{df_volume['volume'].mean():.0f} kg"
                     )
                 
                 with col3:
-                    if len(df_stats) > 1:
-                        progression = ((df_stats['max_weight'].iloc[-1] - df_stats['max_weight'].iloc[0]) 
-                                       / df_stats['max_weight'].iloc[0] * 100)
-                        st.metric(
-                            "Progression",
-                            f"{progression:.1f}%"
-                        )
-                    else:
-                        st.metric("Progression", "N/A")
+                    st.metric(
+                        "Séance max",
+                        f"{df_volume['volume'].max():.0f} kg"
+                    )
                 
                 with col4:
                     st.metric(
-                        "Séances total",
-                        len(df_stats)
+                        "Total séances",
+                        len(df_volume)
                     )
                 
+                # Volume par type
+                st.markdown("---")
+                st.subheader("📈 Volume par type de séance")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                for idx, workout_type in enumerate(['PUSH', 'PULL', 'LEGS']):
+                    df_type = df_volume[df_volume['type'] == workout_type]
+                    with [col1, col2, col3][idx]:
+                        if not df_type.empty:
+                            st.metric(
+                                f"{workout_type}",
+                                f"{df_type['volume'].sum():.0f} kg",
+                                f"{len(df_type)} séances"
+                            )
+                        else:
+                            st.metric(f"{workout_type}", "0 kg", "0 séances")
             else:
-                st.warning(f"Aucune donnée enregistrée pour l'exercice: {selected_exercise}")
+                st.info("Aucune donnée disponible pour le volume global.")
 
 # Sidebar - Informations
 st.sidebar.markdown("---")
