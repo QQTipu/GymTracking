@@ -206,6 +206,9 @@ if 'start_date' not in st.session_state:
 if 'skipped_days' not in st.session_state:
     st.session_state.skipped_days = []
 
+if 'skipped_exercises' not in st.session_state:
+    st.session_state.skipped_exercises = {}
+
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 
@@ -220,6 +223,7 @@ if not st.session_state.data_loaded:
         st.session_state.history = data.get('history', {})
         st.session_state.start_date = data.get('start_date', datetime.now().strftime("%Y-%m-%d"))
         st.session_state.skipped_days = data.get('skipped_days', [])
+        st.session_state.skipped_exercises = data.get('skipped_exercises', {})
     st.session_state.data_loaded = True
 
 # Fonction pour sauvegarder toutes les données
@@ -227,7 +231,8 @@ def save_all_data():
     data = {
         'history': st.session_state.history,
         'start_date': st.session_state.start_date,
-        'skipped_days': st.session_state.skipped_days
+        'skipped_days': st.session_state.skipped_days,
+        'skipped_exercises': st.session_state.skipped_exercises
     }
     return save_workout_data(st.session_state.user.id, data)
 
@@ -240,6 +245,10 @@ def get_program_day(date):
     start = datetime.strptime(st.session_state.start_date, "%Y-%m-%d").date()
     current = date if isinstance(date, datetime) else datetime.strptime(str(date), "%Y-%m-%d").date()
     
+    # Si la date est avant la date de début, retourner None ou 1
+    if current < start:
+        return 1
+    
     # Calculer le nombre de jours depuis le début
     days_elapsed = (current - start).days
     
@@ -248,6 +257,7 @@ def get_program_day(date):
     effective_days = days_elapsed - skipped_before
     
     # Le jour du programme (1-7, avec cycle)
+    # Utiliser modulo 7, mais si le reste est 0, c'est le jour 7 (pas 0)
     program_day = (effective_days % 7) + 1
     
     return program_day
@@ -402,35 +412,60 @@ elif page == "📅 Séance du jour":
             
             # Afficher chaque exercice
             for idx, row in day_workout.iterrows():
-                with st.expander(f"**{row['Exercice']}**", expanded=True):
-                    col1, col2 = st.columns([2, 1])
+                exercise_key = f"{date_str}_{idx}"
+                is_exercise_skipped = st.session_state.skipped_exercises.get(exercise_key, False)
+                
+                with st.expander(f"**{row['Exercice']}**", expanded=not is_exercise_skipped):
+                    # Bouton pour skip l'exercice
+                    col_skip1, col_skip2 = st.columns([3, 1])
+                    with col_skip2:
+                        if is_exercise_skipped:
+                            if st.button("✅ Réactiver", key=f"unskip_ex_{exercise_key}"):
+                                st.session_state.skipped_exercises[exercise_key] = False
+                                save_all_data()
+                                st.rerun()
+                        else:
+                            if st.button("⏭️ Skip exercice", key=f"skip_ex_{exercise_key}"):
+                                st.session_state.skipped_exercises[exercise_key] = True
+                                # Supprimer les poids de cet exercice
+                                for serie_num in range(int(row['Séries'])):
+                                    key = f"{date_str}_{idx}_{serie_num}"
+                                    if key in st.session_state.current_weights:
+                                        del st.session_state.current_weights[key]
+                                save_all_data()
+                                st.rerun()
                     
-                    with col1:
-                        st.write(f"**Répétitions:** {row['Répétitions (RPE)']}")
-                        if pd.notna(row['Notes']) and row['Notes']:
-                            st.caption(f"📝 {row['Notes']}")
-                    
-                    with col2:
-                        st.write(f"**Séries:** {int(row['Séries'])}")
-                    
-                    # Inputs pour les poids de chaque série
-                    st.write("**Poids de travail (kg):**")
-                    cols = st.columns(int(row['Séries']))
-                    
-                    for serie_num in range(int(row['Séries'])):
-                        with cols[serie_num]:
-                            key = f"{date_str}_{idx}_{serie_num}"
-                            default_value = st.session_state.current_weights.get(key, 0.0)
-                            
-                            weight = st.number_input(
-                                f"Série {serie_num + 1}",
-                                min_value=0.0,
-                                max_value=500.0,
-                                value=float(default_value),
-                                step=0.5,
-                                key=key
-                            )
-                            st.session_state.current_weights[key] = weight
+                    if is_exercise_skipped:
+                        st.warning("⏭️ Exercice skippé - aucune donnée ne sera enregistrée")
+                    else:
+                        col1, col2 = st.columns([2, 1])
+                        
+                        with col1:
+                            st.write(f"**Répétitions:** {row['Répétitions (RPE)']}")
+                            if pd.notna(row['Notes']) and row['Notes']:
+                                st.caption(f"📝 {row['Notes']}")
+                        
+                        with col2:
+                            st.write(f"**Séries:** {int(row['Séries'])}")
+                        
+                        # Inputs pour les poids de chaque série
+                        st.write("**Poids de travail (kg):**")
+                        cols = st.columns(int(row['Séries']))
+                        
+                        for serie_num in range(int(row['Séries'])):
+                            with cols[serie_num]:
+                                key = f"{date_str}_{idx}_{serie_num}"
+                                default_value = st.session_state.current_weights.get(key, 0.0)
+                                
+                                weight = st.number_input(
+                                    f"Série {serie_num + 1}",
+                                    min_value=0.0,
+                                    max_value=500.0,
+                                    value=float(default_value),
+                                    step=0.5,
+                                    key=key
+                                )
+                                st.session_state.current_weights[key] = weight
             
             st.markdown("---")
             
@@ -438,11 +473,22 @@ elif page == "📅 Séance du jour":
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
                 if st.button("✅ Enregistrer la séance", type="primary", use_container_width=True):
+                    # Filtrer les poids pour exclure les exercices skippés
+                    filtered_weights = {}
+                    for key, weight in st.session_state.current_weights.items():
+                        # Extraire l'index de l'exercice de la clé
+                        parts = key.split('_')
+                        if len(parts) >= 3:
+                            exercise_key = f"{parts[0]}_{parts[1]}"
+                            # N'inclure que si l'exercice n'est pas skippé
+                            if not st.session_state.skipped_exercises.get(exercise_key, False):
+                                filtered_weights[key] = weight
+                    
                     # Sauvegarder dans l'historique
                     st.session_state.history[date_str] = {
                         'workout_type': workout_type,
                         'day_number': day_number,
-                        'weights': st.session_state.current_weights.copy(),
+                        'weights': filtered_weights,
                         'timestamp': datetime.now().isoformat()
                     }
                     if save_all_data():
