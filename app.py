@@ -239,13 +239,13 @@ def save_all_data():
 # Fonction pour calculer le jour du programme selon la date
 def get_program_day(date):
     """
-    Calcule le jour du programme (1-7) en fonction de la date de début
-    et des jours skippés
+    Calcule le jour du programme en fonction de la date de début
+    et des jours skippés. Le jour est absolu (pas de cycle).
     """
     start = datetime.strptime(st.session_state.start_date, "%Y-%m-%d").date()
     current = date if isinstance(date, datetime) else datetime.strptime(str(date), "%Y-%m-%d").date()
     
-    # Si la date est avant la date de début, retourner None ou 1
+    # Si la date est avant la date de début, retourner 1
     if current < start:
         return 1
     
@@ -256,9 +256,8 @@ def get_program_day(date):
     skipped_before = len([d for d in st.session_state.skipped_days if d < str(current)])
     effective_days = days_elapsed - skipped_before
     
-    # Le jour du programme (1-7, avec cycle)
-    # Utiliser modulo 7, mais si le reste est 0, c'est le jour 7 (pas 0)
-    program_day = (effective_days % 7) + 1
+    # Le jour du programme est le nombre de jours effectifs + 1
+    program_day = effective_days + 1
     
     return program_day
 
@@ -290,6 +289,7 @@ page = st.sidebar.radio(
 
 # Charger le programme
 df_programme = load_programme()
+program_length = df_programme['Jour'].max()
 
 # PAGE: Configuration
 if page == "⚙️ Configuration":
@@ -386,11 +386,13 @@ elif page == "📅 Séance du jour":
     
     # Afficher info sur le prochain jour
     tomorrow, next_day = get_next_scheduled_day()
-    next_workout = df_programme[df_programme['Jour'] == next_day].iloc[0]['Type']
+    next_day_in_cycle = (next_day - 1) % program_length + 1
+    next_workout = df_programme[df_programme['Jour'] == next_day_in_cycle].iloc[0]['Type']
     st.info(f"📅 Demain ({tomorrow.strftime('%d/%m/%Y')}): Jour {next_day} - {next_workout}")
     
     # Filtrer le programme pour le jour sélectionné
-    day_workout = df_programme[df_programme['Jour'] == day_number]
+    day_in_cycle = (day_number - 1) % program_length + 1
+    day_workout = df_programme[df_programme['Jour'] == day_in_cycle]
     
     if not day_workout.empty:
         workout_type = day_workout.iloc[0]['Type']
@@ -530,7 +532,8 @@ elif page == "📊 Historique":
                                 exercises[exercise_idx].append((serie_num, weight))
                     
                     # Afficher les exercices et leurs poids
-                    day_workout = df_programme[df_programme['Jour'] == session['day_number']]
+                    day_in_cycle = (session['day_number'] - 1) % program_length + 1
+                    day_workout = df_programme[df_programme['Jour'] == day_in_cycle]
                     
                     for idx, row in day_workout.iterrows():
                         exercise_idx = str(idx)
@@ -574,7 +577,8 @@ elif page == "📈 Statistiques":
                     day_number = session['day_number']
                     
                     # Trouver l'exercice dans le programme du jour
-                    day_workout = df_programme[df_programme['Jour'] == day_number]
+                    day_in_cycle = (day_number - 1) % program_length + 1
+                    day_workout = df_programme[df_programme['Jour'] == day_in_cycle]
                     exercise_row = day_workout[day_workout['Exercice'] == selected_exercise]
                     
                     if not exercise_row.empty:
@@ -858,7 +862,8 @@ today = datetime.now().date()
 for i in range(7):
     day_date = today + timedelta(days=i)
     day_num = get_program_day(day_date)
-    workout_info = df_programme[df_programme['Jour'] == day_num].iloc[0]['Type']
+    day_in_cycle = (day_num - 1) % program_length + 1
+    workout_info = df_programme[df_programme['Jour'] == day_in_cycle].iloc[0]['Type']
     
     is_today = day_date == today
     is_skipped = day_date.strftime("%Y-%m-%d") in st.session_state.skipped_days
