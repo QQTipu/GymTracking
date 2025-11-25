@@ -291,6 +291,52 @@ page = st.sidebar.radio(
 df_programme = load_programme()
 program_length = df_programme['Jour'].max()
 
+def get_exercise_stats(exercise_name, history, df_programme, program_length, current_date_str):
+    """
+    Calcule la charge maximale de la dernière séance et la charge maximale all-time
+    pour un exercice donné, pour les séances antérieures à une date donnée.
+    """
+    exercise_history = []
+    
+    # Parcourir l'historique des séances (trié par date pour que le dernier soit le plus récent)
+    for date_str, session in sorted(history.items()):
+        # On ne considère que les séances passées
+        if date_str >= current_date_str:
+            continue
+
+        weights = session.get('weights', {})
+        if not weights:
+            continue
+            
+        day_number = session['day_number']
+        day_in_cycle = (day_number - 1) % program_length + 1
+        day_workout_df = df_programme[df_programme['Jour'] == day_in_cycle]
+        
+        exercise_rows = day_workout_df[day_workout_df['Exercice'] == exercise_name]
+        
+        if not exercise_rows.empty:
+            exercise_idx = str(exercise_rows.index[0])
+            session_weights = []
+            for key, weight in weights.items():
+                parts = key.split('_')
+                if len(parts) >= 3 and parts[1] == exercise_idx and weight > 0:
+                    session_weights.append(weight)
+            
+            if session_weights:
+                exercise_history.append({
+                    'date': date_str,
+                    'max_weight': max(session_weights)
+                })
+
+    if not exercise_history:
+        return None, None
+
+    # Le dernier élément de la liste est la séance la plus récente
+    last_max = exercise_history[-1]['max_weight']
+    all_time_max = max(item['max_weight'] for item in exercise_history)
+    
+    return last_max, all_time_max
+
 # PAGE: Configuration
 if page == "⚙️ Configuration":
     st.header("⚙️ Configuration du programme")
@@ -444,8 +490,28 @@ elif page == "📅 Séance du jour":
                         
                         with col1:
                             st.write(f"**Répétitions:** {row['Répétitions (RPE)']}")
+                            
+                            # Récupérer et afficher les stats de l'exercice
+                            last_max, all_time_max = get_exercise_stats(
+                                row['Exercice'], 
+                                st.session_state.history, 
+                                df_programme, 
+                                program_length, 
+                                current_date_str=date_str
+                            )
+                            
+                            notes_and_stats = []
                             if pd.notna(row['Notes']) and row['Notes']:
-                                st.caption(f"📝 {row['Notes']}")
+                                notes_and_stats.append(f"📝 {row['Notes']}")
+                            
+                            if all_time_max is not None:
+                                if last_max == all_time_max:
+                                    notes_and_stats.append(f"**Dernier max :** {last_max} kg (🏅 Record)")
+                                else:
+                                    notes_and_stats.append(f"**Dernier max :** {last_max} kg | **Record :** {all_time_max} kg")
+                            
+                            if notes_and_stats:
+                                st.caption(" | ".join(notes_and_stats))
                         
                         with col2:
                             st.write(f"**Séries:** {int(row['Séries'])}")
