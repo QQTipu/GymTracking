@@ -209,6 +209,15 @@ if 'skipped_days' not in st.session_state:
 if 'skipped_exercises' not in st.session_state:
     st.session_state.skipped_exercises = {}
 
+if 'body_weight_history' not in st.session_state:
+    st.session_state.body_weight_history = {}
+
+if 'target_body_weight' not in st.session_state:
+    st.session_state.target_body_weight = 0.0
+
+if 'target_body_weight_date' not in st.session_state:
+    st.session_state.target_body_weight_date = None
+
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 
@@ -224,6 +233,9 @@ if not st.session_state.data_loaded:
         st.session_state.start_date = data.get('start_date', datetime.now().strftime("%Y-%m-%d"))
         st.session_state.skipped_days = data.get('skipped_days', [])
         st.session_state.skipped_exercises = data.get('skipped_exercises', {})
+        st.session_state.body_weight_history = data.get('body_weight_history', {})
+        st.session_state.target_body_weight = data.get('target_body_weight', 0.0)
+        st.session_state.target_body_weight_date = data.get('target_body_weight_date', None)
     st.session_state.data_loaded = True
 
 # Fonction pour sauvegarder toutes les données
@@ -232,7 +244,10 @@ def save_all_data():
         'history': st.session_state.history,
         'start_date': st.session_state.start_date,
         'skipped_days': st.session_state.skipped_days,
-        'skipped_exercises': st.session_state.skipped_exercises
+        'skipped_exercises': st.session_state.skipped_exercises,
+        'body_weight_history': st.session_state.body_weight_history,
+        'target_body_weight': st.session_state.target_body_weight,
+        'target_body_weight_date': st.session_state.target_body_weight_date
     }
     return save_workout_data(st.session_state.user.id, data)
 
@@ -383,6 +398,39 @@ if page == "⚙️ Configuration":
         st.info("Aucun jour skippé pour le moment.")
     
     st.markdown("---")
+    st.subheader("🏋️ Objectif de poids du corps")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        new_target_weight = st.number_input(
+            "Poids cible (kg)",
+            min_value=0.0,
+            value=float(st.session_state.target_body_weight or 0.0),
+            step=0.5,
+            format="%.1f"
+        )
+    
+    with col2:
+        current_target_date = None
+        if st.session_state.target_body_weight_date:
+            try:
+                current_target_date = datetime.strptime(st.session_state.target_body_weight_date, "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                current_target_date = None # Garder None si la date est invalide
+
+        new_target_date = st.date_input(
+            "Échéance pour atteindre l'objectif",
+            value=current_target_date,
+            format="DD/MM/YYYY"
+        )
+
+    if st.button("💾 Enregistrer l'objectif de poids"):
+        st.session_state.target_body_weight = new_target_weight
+        st.session_state.target_body_weight_date = new_target_date.strftime("%Y-%m-%d") if new_target_date else None
+        if save_all_data():
+            st.success("✅ Objectif de poids mis à jour !")
+
+    st.markdown("---")
     st.subheader("🗑️ Réinitialiser toutes les données")
     
     if st.button("⚠️ RÉINITIALISER TOUT", type="secondary"):
@@ -435,6 +483,29 @@ elif page == "📅 Séance du jour":
     next_day_in_cycle = (next_day - 1) % program_length + 1
     next_workout = df_programme[df_programme['Jour'] == next_day_in_cycle].iloc[0]['Type']
     st.info(f"📅 Demain ({tomorrow.strftime('%d/%m/%Y')}): Jour {next_day} - {next_workout}")
+
+    st.markdown("---")
+    st.subheader("⚖️ Poids du corps du jour")
+    
+    # Récupérer le poids déjà enregistré pour ce jour, s'il existe
+    default_body_weight = st.session_state.body_weight_history.get(date_str, 0.0)
+    
+    body_weight = st.number_input(
+        "Poids (kg)",
+        min_value=0.0,
+        value=float(default_body_weight),
+        step=0.1,
+        format="%.1f",
+        key=f"bw_{date_str}"
+    )
+    
+    # Mettre à jour l'historique si la valeur a changé et est supérieure à 0
+    if body_weight > 0 and body_weight != default_body_weight:
+        st.session_state.body_weight_history[date_str] = body_weight
+        if save_all_data():
+            st.toast("⚖️ Poids du corps enregistré !", icon="✅")
+
+    st.markdown("---")
     
     # Filtrer le programme pour le jour sélectionné
     day_in_cycle = (day_number - 1) % program_length + 1
