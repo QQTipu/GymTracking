@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from supabase import create_client, Client
 import os
+import numpy as np
 
 # Configuration de la page
 st.set_page_config(
@@ -690,11 +691,11 @@ elif page == "📊 Historique":
 elif page == "📈 Statistiques":
     st.header("Statistiques et progression")
     
-    if not st.session_state.history:
-        st.info("Aucune donnée disponible. Enregistrez vos séances pour voir vos statistiques.")
+    if not st.session_state.history and not st.session_state.body_weight_history:
+        st.info("Aucune donnée disponible. Enregistrez vos séances ou votre poids pour voir vos statistiques.")
     else:
         # Onglets pour différentes vues
-        tab1, tab2 = st.tabs(["📊 Par exercice", "📈 Volume global"])
+        tab1, tab2, tab3 = st.tabs(["📊 Par exercice", "📈 Volume global", "⚖️ Poids du corps"])
         
         with tab1:
             # Sélection de l'exercice à analyser
@@ -990,6 +991,203 @@ elif page == "📈 Statistiques":
             else:
                 st.info("Aucune donnée disponible pour le volume global.")
 
+        with tab3:
+            st.subheader("⚖️ Évolution du poids de corps")
+            
+            if not st.session_state.body_weight_history:
+                st.info("Aucun poids enregistré pour le moment. Enregistrez votre poids dans l'onglet 'Séance du jour'.")
+            else:
+                # Préparation des données
+                bw_data = [
+                    {'date': date, 'weight': weight} 
+                    for date, weight in st.session_state.body_weight_history.items()
+                ]
+                df_bw = pd.DataFrame(bw_data)
+                df_bw['date'] = pd.to_datetime(df_bw['date'])
+                df_bw = df_bw.sort_values('date')
+                
+                # Graphique
+                fig_bw = go.Figure()
+                
+                # Courbe de poids (réelle)
+                fig_bw.add_trace(go.Scatter(
+                    x=df_bw['date'],
+                    y=df_bw['weight'],
+                    mode='lines+markers',
+                    name='Poids actuel',
+                    line=dict(color='#3B8ED0', width=3),
+                    marker=dict(size=8)
+                ))
+                
+                # Ligne d'objectif
+                target_weight = st.session_state.target_body_weight
+                target_date_str = st.session_state.target_body_weight_date
+                
+                if target_weight > 0:
+                    fig_bw.add_hline(
+                        y=target_weight, 
+                        line_dash="dash", 
+                        line_color="#28a745", 
+                        annotation_text=f"Objectif: {target_weight}kg",
+                        annotation_position="bottom right"
+                    )
+                    
+                    if target_date_str:
+                        target_date = pd.to_datetime(target_date_str)
+                        start_date = df_bw['date'].iloc[0]
+                        start_weight = df_bw['weight'].iloc[0]
+                        
+                        # Point cible (étoile)
+                        fig_bw.add_trace(go.Scatter(
+                            x=[target_date],
+                            y=[target_weight],
+                            mode='markers',
+                            name='Objectif cible',
+                            marker=dict(color='#28a745', size=12, symbol='star')
+                        ))
+                        
+                        # 1. Trajectoire Idéale (Ligne pointillée Start -> Target)
+                        fig_bw.add_trace(go.Scatter(
+                            x=[start_date, target_date],
+                            y=[start_weight, target_weight],
+                            mode='lines',
+                            name='Trajectoire Idéale',
+                            line=dict(color='rgba(40, 167, 69, 0.5)', width=2, dash='dot')
+                        ))
+                        
+                        # 2. Régression linéaire (Tendance actuelle)
+                        if len(df_bw) > 1:
+                            # Convert dates to days from start for regression
+                            days_from_start = (df_bw['date'] - start_date).dt.days
+                            # Calculate fit
+                            z = np.polyfit(days_from_start, df_bw['weight'], 1)
+                            p = np.poly1d(z)
+                            
+                            # Calculate trend line
+                            trend_y = p(days_from_start)
+                            
+                            fig_bw.add_trace(go.Scatter(
+                                x=df_bw['date'],
+                                y=trend_y,
+                                mode='lines',
+                                name='Tendance',
+                                line=dict(color='#FFA07A', width=2)
+                            ))
+                
+                fig_bw.update_layout(
+                    title="Évolution du poids",
+                    xaxis_title="Date",
+                    yaxis_title="Poids (kg)",
+                    hovermode='x unified',
+                    xaxis=dict(tickformat='%d-%m-%Y')
+                )
+                
+                st.plotly_chart(fig_bw, use_container_width=True)
+                
+                # Métriques existantes
+                st.markdown("---")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                current_weight = df_bw.iloc[-1]['weight']
+                start_weight = df_bw.iloc[0]['weight']
+                
+                with col1:
+                    st.metric("Poids actuel", f"{current_weight:.1f} kg")
+                
+                with col2:
+                    change = current_weight - start_weight
+                    st.metric("Variation totale", f"{change:+.1f} kg", delta=f"{change:.1f} kg")
+                
+                with col3:
+                    if target_weight > 0:
+                        diff_to_target = current_weight - target_weight
+                        st.metric(
+                            "Objectif", 
+                            f"{target_weight:.1f} kg", 
+                            delta=f"{abs(diff_to_target):.1f} kg d'écart", 
+                            delta_color="off"
+                        )
+                    else:
+                        st.metric("Objectif", "Non défini")
+                        
+                with col4:
+                     if target_weight > 0 and start_weight != target_weight:
+                        total_diff = target_weight - start_weight
+                        current_diff = current_weight - start_weight
+                        if total_diff != 0:
+                            progress = (current_diff / total_diff) * 100
+                            display_progress = max(0, min(100, progress))
+                            st.metric("Avancement", f"{display_progress:.1f}%")
+                        else:
+                            st.metric("Avancement", "N/A")
+                     else:
+                        st.metric("Avancement", "N/A")
+                
+                # NOUVEAU BLOC : ANALYSE ET PRÉDICTIONS
+                if target_weight > 0 and target_date_str:
+                    st.markdown("### 🧭 Analyse de l'objectif")
+                    
+                    target_date = pd.to_datetime(target_date_str)
+                    today = pd.to_datetime(datetime.now().date())
+                    
+                    # Seulement si la date cible est dans le futur
+                    if target_date > today:
+                         days_remaining = (target_date - today).days
+                         weeks_remaining = days_remaining / 7
+                         
+                         weight_diff_total = target_weight - current_weight
+                         
+                         col_a, col_b = st.columns(2)
+                         
+                         with col_a:
+                             # Calcul du rythme nécessaire
+                             if weeks_remaining > 0:
+                                 rate_needed = weight_diff_total / weeks_remaining
+                                 action = "perdre" if weight_diff_total < 0 else "prendre"
+                                 st.metric(
+                                     "Rythme nécessaire",
+                                     f"{abs(rate_needed):.2f} kg/semaine",
+                                     f"Pour atteindre {target_weight}kg le {target_date.strftime('%d/%m')}"
+                                 )
+                             else:
+                                 st.info("L'échéance est trop proche.")
+                         
+                         with col_b:
+                             # Calcul de l'avance/retard
+                             start_date = df_bw['date'].iloc[0]
+                             total_days_plan = (target_date - start_date).days
+                             days_passed = (today - start_date).days
+                             
+                             if total_days_plan > 0:
+                                 # Où devrais-je être aujourd'hui théoriquement ?
+                                 progress_ratio = days_passed / total_days_plan
+                                 ideal_weight_today = start_weight + (target_weight - start_weight) * progress_ratio
+                                 
+                                 diff_vs_ideal = current_weight - ideal_weight_today
+                                 
+                                 # Logique pour déterminer bon/mauvais selon qu'on veut perdre ou gagner
+                                 is_weight_loss_goal = target_weight < start_weight
+                                 
+                                 if is_weight_loss_goal:
+                                     # Objectif perte : Si Actuel < Idéal => Avance (Bien)
+                                     is_ahead = diff_vs_ideal < 0
+                                     delta_val = abs(diff_vs_ideal)
+                                     delta_color = "normal" if is_ahead else "inverse"
+                                     status_text = "En avance" if is_ahead else "En retard"
+                                 else:
+                                     # Objectif gain : Si Actuel > Idéal => Avance (Bien)
+                                     is_ahead = diff_vs_ideal > 0
+                                     delta_val = abs(diff_vs_ideal)
+                                     delta_color = "normal" if is_ahead else "inverse"
+                                     status_text = "En avance" if is_ahead else "En retard"
+                                     
+                                 st.metric(
+                                     "Statut actuel",
+                                     status_text,
+                                     f"{delta_val:.1f} kg vs Trajectoire idéale",
+                                     delta_color=delta_color
+                                 )
+
 # Sidebar - Informations
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📋 Calendrier du programme")
@@ -1028,4 +1226,4 @@ st.sidebar.info(
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.caption("💪 Tracker de Musculation v4.0 - Powered by Supabase")
+st.sidebar.caption("💪 Tracker de Musculation v4.2 - Powered by Supabase")
