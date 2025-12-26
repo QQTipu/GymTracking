@@ -1,8 +1,9 @@
-# Tracker de Musculation
+# Workout Tracker
 
-Application de suivi de performances en musculation avec authentification.
+Fitness performance tracking application with authentication.
+Try the app [here](https://gymtracking101.streamlit.app/).
 
-## Installation locale
+## Local Installation
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
