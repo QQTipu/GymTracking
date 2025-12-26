@@ -4,9 +4,13 @@ import json
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import plotly.express as px
-from supabase import create_client, Client
 import os
 import numpy as np
+
+# Imports locaux
+import database
+import auth
+import utils
 
 # Configuration de la page
 st.set_page_config(
@@ -16,166 +20,7 @@ st.set_page_config(
 )
 
 # ============= CONFIGURATION SUPABASE =============
-# À configurer dans Streamlit Cloud Secrets ou .streamlit/secrets.toml
-try:
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-    
-    # Initialiser sans session au début
-    if 'supabase_client' not in st.session_state:
-        st.session_state.supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    
-    supabase = st.session_state.supabase_client
-except Exception as e:
-    st.error("⚠️ Configuration Supabase manquante. Voir les instructions dans le README.")
-    st.stop()
-
-# ============= FONCTIONS SUPABASE =============
-
-def create_user_account(username, password):
-    """Crée un compte utilisateur dans Supabase Auth"""
-    try:
-        # Créer l'utilisateur avec email fictif (username@workout.app)
-        email = f"{username}@workout.app"
-        response = supabase.auth.sign_up({
-            "email": email,
-            "password": password,
-            "options": {
-                "data": {
-                    "username": username
-                },
-                "email_redirect_to": None
-            }
-        })
-        if response.user:
-            return True, "Compte créé avec succès !"
-        return False, "Erreur lors de la création du compte"
-    except Exception as e:
-        error_msg = str(e)
-        if "User already registered" in error_msg:
-            return False, "Ce nom d'utilisateur existe déjà"
-        return False, f"Erreur : {error_msg}"
-
-def login_user(username, password):
-    """Connecte un utilisateur"""
-    try:
-        email = f"{username}@workout.app"
-        response = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": password
-        })
-        if response.user and response.session:
-            # Mettre à jour le client avec le token d'accès
-            supabase.postgrest.auth(response.session.access_token)
-            return response.user, response.session, None
-        return None, None, "Identifiants incorrects"
-    except Exception as e:
-        error_msg = str(e)
-        if "Invalid login credentials" in error_msg:
-            return None, None, "Identifiants incorrects"
-        elif "Email not confirmed" in error_msg:
-            return None, None, "Email non confirmé. Vérifiez la configuration Supabase."
-        return None, None, f"Erreur : {error_msg}"
-
-def logout_user():
-    """Déconnecte l'utilisateur"""
-    try:
-        supabase.auth.sign_out()
-    except:
-        pass
-
-def save_workout_data(user_id, data):
-    """Sauvegarde les données d'entraînement de l'utilisateur"""
-    try:
-        # Vérifier si l'utilisateur existe déjà
-        result = supabase.table('user_data').select("*").eq('user_id', user_id).execute()
-        
-        if len(result.data) > 0:
-            # Mise à jour
-            supabase.table('user_data').update({
-                'workout_data': data,
-                'updated_at': datetime.now().isoformat()
-            }).eq('user_id', user_id).execute()
-        else:
-            # Insertion
-            supabase.table('user_data').insert({
-                'user_id': user_id,
-                'workout_data': data,
-                'created_at': datetime.now().isoformat(),
-                'updated_at': datetime.now().isoformat()
-            }).execute()
-        return True
-    except Exception as e:
-        st.error(f"Erreur sauvegarde: {str(e)}")
-        return False
-
-def load_workout_data(user_id):
-    """Charge les données d'entraînement de l'utilisateur"""
-    try:
-        result = supabase.table('user_data').select("workout_data").eq('user_id', user_id).execute()
-        if len(result.data) > 0:
-            return result.data[0]['workout_data']
-        return None
-    except Exception as e:
-        st.error(f"Erreur chargement: {str(e)}")
-        return None
-
-# ============= INTERFACE DE CONNEXION =============
-
-def login_page():
-    """Affiche la page de connexion"""
-    st.title("🔐 Connexion - Tracker Musculation")
-    
-    st.markdown("""
-    ### 📊 Suivi de performance en musculation
-    Trackez vos séances, suivez votre progression, atteignez vos objectifs ! 💪
-    """)
-    
-    tab1, tab2 = st.tabs(["Se connecter", "Créer un compte"])
-    
-    with tab1:
-        st.subheader("Connexion")
-        with st.form("login_form"):
-            username = st.text_input("Nom d'utilisateur")
-            password = st.text_input("Mot de passe", type="password")
-            submit = st.form_submit_button("Se connecter", type="primary", use_container_width=True)
-            
-            if submit:
-                if not username or not password:
-                    st.error("❌ Veuillez remplir tous les champs")
-                else:
-                    user, session, error = login_user(username, password)
-                    if user and session:
-                        st.session_state.logged_in = True
-                        st.session_state.user = user
-                        st.session_state.session = session
-                        st.session_state.username = username
-                        st.success("✅ Connexion réussie !")
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {error}")
-    
-    with tab2:
-        st.subheader("Créer un compte")
-        with st.form("signup_form"):
-            new_username = st.text_input("Nom d'utilisateur", key="signup_username")
-            new_password = st.text_input("Mot de passe (min. 6 caractères)", type="password", key="signup_password")
-            confirm_password = st.text_input("Confirmer le mot de passe", type="password")
-            submit = st.form_submit_button("Créer le compte", type="primary", use_container_width=True)
-            
-            if submit:
-                if not new_username or not new_password:
-                    st.error("❌ Veuillez remplir tous les champs")
-                elif len(new_password) < 6:
-                    st.error("❌ Le mot de passe doit contenir au moins 6 caractères")
-                elif new_password != confirm_password:
-                    st.error("❌ Les mots de passe ne correspondent pas")
-                else:
-                    success, message = create_user_account(new_username, new_password)
-                    if success:
-                        st.success(f"✅ {message} Vous pouvez maintenant vous connecter.")
-                    else:
-                        st.error(f"❌ {message}")
+supabase = database.init_supabase()
 
 # Initialiser l'état de connexion
 if 'logged_in' not in st.session_state:
@@ -183,16 +28,10 @@ if 'logged_in' not in st.session_state:
 
 # Vérifier si l'utilisateur est connecté
 if not st.session_state.logged_in:
-    login_page()
+    auth.login_page(supabase)
     st.stop()
 
 # ============= APPLICATION PRINCIPALE =============
-
-# Charger le programme depuis le CSV
-@st.cache_data
-def load_programme():
-    df = pd.read_csv('programme.csv')
-    return df
 
 # Initialiser le session state
 if 'history' not in st.session_state:
@@ -228,7 +67,7 @@ if not st.session_state.data_loaded:
     if 'session' in st.session_state and st.session_state.session:
         supabase.postgrest.auth(st.session_state.session.access_token)
     
-    data = load_workout_data(st.session_state.user.id)
+    data = database.load_workout_data(supabase, st.session_state.user.id)
     if data:
         st.session_state.history = data.get('history', {})
         st.session_state.start_date = data.get('start_date', datetime.now().strftime("%Y-%m-%d"))
@@ -250,39 +89,7 @@ def save_all_data():
         'target_body_weight': st.session_state.target_body_weight,
         'target_body_weight_date': st.session_state.target_body_weight_date
     }
-    return save_workout_data(st.session_state.user.id, data)
-
-# Fonction pour calculer le jour du programme selon la date
-def get_program_day(date):
-    """
-    Calcule le jour du programme en fonction de la date de début
-    et des jours skippés. Le jour est absolu (pas de cycle).
-    """
-    start = datetime.strptime(st.session_state.start_date, "%Y-%m-%d").date()
-    current = date if isinstance(date, datetime) else datetime.strptime(str(date), "%Y-%m-%d").date()
-    
-    # Si la date est avant la date de début, retourner 1
-    if current < start:
-        return 1
-    
-    # Calculer le nombre de jours depuis le début
-    days_elapsed = (current - start).days
-    
-    # Soustraire les jours skippés avant cette date
-    skipped_before = len([d for d in st.session_state.skipped_days if d < str(current)])
-    effective_days = days_elapsed - skipped_before
-    
-    # Le jour du programme est le nombre de jours effectifs + 1
-    program_day = effective_days + 1
-    
-    return program_day
-
-# Fonction pour obtenir le prochain jour prévu du programme
-def get_next_scheduled_day():
-    """Retourne la date et le jour du programme pour demain"""
-    tomorrow = (datetime.now() + timedelta(days=1)).date()
-    next_day = get_program_day(tomorrow)
-    return tomorrow, next_day
+    return database.save_workout_data(supabase, st.session_state.user.id, data)
 
 # Header avec bouton de déconnexion
 col1, col2 = st.columns([4, 1])
@@ -291,7 +98,7 @@ with col1:
 with col2:
     st.write(f"👤 {st.session_state.username}")
     if st.button("🚪 Déconnexion"):
-        logout_user()
+        database.logout_user(supabase)
         st.session_state.clear()
         st.rerun()
 
@@ -304,54 +111,8 @@ page = st.sidebar.radio(
 )
 
 # Charger le programme
-df_programme = load_programme()
+df_programme = utils.load_programme()
 program_length = df_programme['Jour'].max()
-
-def get_exercise_stats(exercise_name, history, df_programme, program_length, current_date_str):
-    """
-    Calcule la charge maximale de la dernière séance et la charge maximale all-time
-    pour un exercice donné, pour les séances antérieures à une date donnée.
-    """
-    exercise_history = []
-    
-    # Parcourir l'historique des séances (trié par date pour que le dernier soit le plus récent)
-    for date_str, session in sorted(history.items()):
-        # On ne considère que les séances passées
-        if date_str >= current_date_str:
-            continue
-
-        weights = session.get('weights', {})
-        if not weights:
-            continue
-            
-        day_number = session['day_number']
-        day_in_cycle = (day_number - 1) % program_length + 1
-        day_workout_df = df_programme[df_programme['Jour'] == day_in_cycle]
-        
-        exercise_rows = day_workout_df[day_workout_df['Exercice'] == exercise_name]
-        
-        if not exercise_rows.empty:
-            exercise_idx = str(exercise_rows.index[0])
-            session_weights = []
-            for key, weight in weights.items():
-                parts = key.split('_')
-                if len(parts) >= 3 and parts[1] == exercise_idx and weight > 0:
-                    session_weights.append(weight)
-            
-            if session_weights:
-                exercise_history.append({
-                    'date': date_str,
-                    'max_weight': max(session_weights)
-                })
-
-    if not exercise_history:
-        return None, None
-
-    # Le dernier élément de la liste est la séance la plus récente
-    last_max = exercise_history[-1]['max_weight']
-    all_time_max = max(item['max_weight'] for item in exercise_history)
-    
-    return last_max, all_time_max
 
 # PAGE: Configuration
 if page == "⚙️ Configuration":
@@ -375,7 +136,7 @@ if page == "⚙️ Configuration":
     
     with col2:
         st.info(f"**Date actuelle de début:** {st.session_state.start_date}")
-        today_day = get_program_day(datetime.now().date())
+        today_day = utils.get_program_day(datetime.now().date(), st.session_state.start_date, st.session_state.skipped_days)
         st.info(f"**Jour du programme aujourd'hui:** Jour {today_day}")
     
     st.markdown("---")
@@ -456,7 +217,7 @@ elif page == "📅 Séance du jour":
         )
     
     date_str = selected_date.strftime("%Y-%m-%d")
-    day_number = get_program_day(selected_date)
+    day_number = utils.get_program_day(selected_date, st.session_state.start_date, st.session_state.skipped_days)
     
     with col2:
         st.metric("Jour du programme", f"Jour {day_number}")
@@ -480,7 +241,7 @@ elif page == "📅 Séance du jour":
                     st.rerun()
     
     # Afficher info sur le prochain jour
-    tomorrow, next_day = get_next_scheduled_day()
+    tomorrow, next_day = utils.get_next_scheduled_day(st.session_state.start_date, st.session_state.skipped_days)
     next_day_in_cycle = (next_day - 1) % program_length + 1
     next_workout = df_programme[df_programme['Jour'] == next_day_in_cycle].iloc[0]['Type']
     st.info(f"📅 Demain ({tomorrow.strftime('%d/%m/%Y')}): Jour {next_day} - {next_workout}")
@@ -564,7 +325,7 @@ elif page == "📅 Séance du jour":
                             st.write(f"**Répétitions:** {row['Répétitions (RPE)']}")
                             
                             # Récupérer et afficher les stats de l'exercice
-                            last_max, all_time_max = get_exercise_stats(
+                            last_max, all_time_max = utils.get_exercise_stats(
                                 row['Exercice'], 
                                 st.session_state.history, 
                                 df_programme, 
@@ -1196,7 +957,7 @@ st.sidebar.markdown("### 📋 Calendrier du programme")
 today = datetime.now().date()
 for i in range(7):
     day_date = today + timedelta(days=i)
-    day_num = get_program_day(day_date)
+    day_num = utils.get_program_day(day_date, st.session_state.start_date, st.session_state.skipped_days)
     day_in_cycle = (day_num - 1) % program_length + 1
     workout_info = df_programme[df_programme['Jour'] == day_in_cycle].iloc[0]['Type']
     
