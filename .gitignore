@@ -1,5 +1,6 @@
 .streamlit/secrets.toml
 *.pyc
 *.ipynb
+*.csv
 __pycache__/
 .env
