@@ -2,11 +2,6 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta
 
-@st.cache_data
-def load_programme():
-    df = pd.read_csv('programme.csv')
-    return df
-
 def get_program_day(date, start_date_str, skipped_days):
     """
     Calcule le jour du programme en fonction de la date de début
