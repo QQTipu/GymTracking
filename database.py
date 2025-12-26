@@ -112,7 +112,7 @@ def get_all_programs(supabase):
 def load_program_by_id(supabase, program_id):
     """Charge les exercices d'un programme spécifique"""
     try:
-        response = supabase.table('exercices').select("*").eq('program_id', program_id).order('day_number').execute()
+        response = supabase.table('exercices').select("*").eq('program_id', program_id).order('id').execute()
         df = pd.DataFrame(response.data)
         
         if not df.empty:

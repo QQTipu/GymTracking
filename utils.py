@@ -56,19 +56,21 @@ def get_exercise_stats(exercise_name, history, df_programme, program_length, cur
         
         exercise_rows = day_workout_df[day_workout_df['Exercice'] == exercise_name]
         
-        if not exercise_rows.empty:
-            exercise_idx = str(exercise_rows.index[0])
-            session_weights = []
-            for key, weight in weights.items():
-                parts = key.split('_')
-                if len(parts) >= 3 and parts[1] == exercise_idx and weight > 0:
+        # Recherche par nom d'exercice (plus robuste que l'index)
+        session_weights = []
+        for key, weight in weights.items():
+            parts = key.split('_')
+            if len(parts) >= 3:
+                # Reconstruire le nom (au cas où il contient des underscores)
+                stored_name = "_".join(parts[1:-1])
+                if stored_name == exercise_name and weight > 0:
                     session_weights.append(weight)
-            
-            if session_weights:
-                exercise_history.append({
-                    'date': date_str,
-                    'max_weight': max(session_weights)
-                })
+        
+        if session_weights:
+            exercise_history.append({
+                'date': date_str,
+                'max_weight': max(session_weights)
+            })
 
     if not exercise_history:
         return None, None

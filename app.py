@@ -124,6 +124,55 @@ if df_programme.empty:
 else:
     program_length = df_programme['Jour'].max()
 
+# --- MIGRATION AUTOMATIQUE DES DONNÉES (Index -> Nom) ---
+# Convertit l'historique pour utiliser les noms d'exercices au lieu des index
+if st.session_state.history or st.session_state.skipped_exercises:
+    migrated = False
+    
+    # 1. Migration de l'historique des poids
+    for date_str, session in st.session_state.history.items():
+        new_weights = {}
+        weights = session.get('weights', {})
+        session_migrated = False
+        
+        for key, weight in weights.items():
+            parts = key.split('_')
+            # Si le format est date_INDEX_set (l'index est un nombre)
+            if len(parts) == 3 and parts[1].isdigit():
+                idx = int(parts[1])
+                set_num = parts[2]
+                if idx in df_programme.index:
+                    ex_name = df_programme.loc[idx, 'Exercice']
+                    new_key = f"{date_str}_{ex_name}_{set_num}"
+                    new_weights[new_key] = weight
+                    session_migrated = True
+            else:
+                new_weights[key] = weight
+        
+        if session_migrated:
+            session['weights'] = new_weights
+            migrated = True
+
+    # 2. Migration des exercices skippés
+    new_skipped_exercises = {}
+    for key, val in st.session_state.skipped_exercises.items():
+        parts = key.split('_')
+        if len(parts) == 2 and parts[1].isdigit():
+            idx = int(parts[1])
+            if idx in df_programme.index:
+                ex_name = df_programme.loc[idx, 'Exercice']
+                new_key = f"{parts[0]}_{ex_name}"
+                new_skipped_exercises[new_key] = val
+                migrated = True
+        else:
+            new_skipped_exercises[key] = val
+    
+    if migrated:
+        st.session_state.skipped_exercises = new_skipped_exercises
+        save_all_data()
+        st.toast("🔄 Historique migré vers le format robuste (Noms)", icon="🛠️")
+        st.rerun()
+
 # PAGE: Configuration
 if page == "⚙️ Configuration":
     st.header("⚙️ Configuration du programme")
@@ -345,7 +394,7 @@ elif page == "📅 Séance du jour":
             
             # Afficher chaque exercice
             for idx, row in day_workout.iterrows():
-                exercise_key = f"{date_str}_{idx}"
+                exercise_key = f"{date_str}_{row['Exercice']}"
                 is_exercise_skipped = st.session_state.skipped_exercises.get(exercise_key, False)
                 
                 with st.expander(f"**{row['Exercice']}**", expanded=not is_exercise_skipped):
@@ -362,7 +411,7 @@ elif page == "📅 Séance du jour":
                                 st.session_state.skipped_exercises[exercise_key] = True
                                 # Supprimer les poids de cet exercice
                                 for serie_num in range(int(row['Séries'])):
-                                    key = f"{date_str}_{idx}_{serie_num}"
+                                    key = f"{date_str}_{row['Exercice']}_{serie_num}"
                                     if key in st.session_state.current_weights:
                                         del st.session_state.current_weights[key]
                                 save_all_data()
@@ -407,7 +456,7 @@ elif page == "📅 Séance du jour":
                         
                         for serie_num in range(int(row['Séries'])):
                             with cols[serie_num]:
-                                key = f"{date_str}_{idx}_{serie_num}"
+                                key = f"{date_str}_{row['Exercice']}_{serie_num}"
                                 default_value = st.session_state.current_weights.get(key, 0.0)
                                 
                                 weight = st.number_input(
@@ -432,7 +481,7 @@ elif page == "📅 Séance du jour":
                         # Extraire l'index de l'exercice de la clé
                         parts = key.split('_')
                         if len(parts) >= 3:
-                            exercise_key = f"{parts[0]}_{parts[1]}"
+                            exercise_key = f"{parts[0]}_{'_'.join(parts[1:-1])}"
                             # N'inclure que si l'exercice n'est pas skippé
                             if not st.session_state.skipped_exercises.get(exercise_key, False):
                                 filtered_weights[key] = weight
@@ -475,22 +524,21 @@ elif page == "📊 Historique":
                         if weight > 0:
                             parts = key.split('_')
                             if len(parts) >= 3:
-                                exercise_idx = parts[1]
-                                serie_num = int(parts[2])
+                                ex_name = "_".join(parts[1:-1])
+                                serie_num = int(parts[-1])
                                 
-                                if exercise_idx not in exercises:
-                                    exercises[exercise_idx] = []
-                                exercises[exercise_idx].append((serie_num, weight))
+                                if ex_name not in exercises:
+                                    exercises[ex_name] = []
+                                exercises[ex_name].append((serie_num, weight))
                     
                     # Afficher les exercices et leurs poids
                     day_in_cycle = (session['day_number'] - 1) % program_length + 1
                     day_workout = df_programme[df_programme['Jour'] == day_in_cycle]
                     
                     for idx, row in day_workout.iterrows():
-                        exercise_idx = str(idx)
-                        if exercise_idx in exercises:
+                        if row['Exercice'] in exercises:
                             st.write(f"**{row['Exercice']}**")
-                            series_data = sorted(exercises[exercise_idx])
+                            series_data = sorted(exercises[row['Exercice']])
                             weights_str = " | ".join([f"S{s+1}: {w}kg" for s, w in series_data])
                             st.caption(weights_str)
                 
@@ -533,14 +581,13 @@ elif page == "📈 Statistiques":
                     exercise_row = day_workout[day_workout['Exercice'] == selected_exercise]
                     
                     if not exercise_row.empty:
-                        idx = exercise_row.index[0]
-                        
                         # Collecter les poids pour cet exercice
                         exercise_weights = []
                         for key, weight in weights.items():
                             # Vérifier que la clé correspond exactement à l'exercice
                             parts = key.split('_')
-                            if len(parts) >= 3 and parts[1] == str(idx) and weight > 0:
+                            stored_name = "_".join(parts[1:-1])
+                            if len(parts) >= 3 and stored_name == selected_exercise and weight > 0:
                                 exercise_weights.append(weight)
                         
                         if exercise_weights:
