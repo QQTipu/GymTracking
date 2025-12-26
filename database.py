@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 from supabase import create_client
 from datetime import datetime
 
@@ -98,3 +99,33 @@ def load_workout_data(supabase, user_id):
     except Exception as e:
         st.error(f"Erreur chargement: {str(e)}")
         return None
+
+def get_all_programs(supabase):
+    """Récupère la liste des programmes disponibles"""
+    try:
+        response = supabase.table('programs').select("*").order('id').execute()
+        return response.data
+    except Exception as e:
+        st.error(f"Erreur chargement liste programmes: {str(e)}")
+        return []
+
+def load_program_by_id(supabase, program_id):
+    """Charge les exercices d'un programme spécifique"""
+    try:
+        response = supabase.table('exercices').select("*").eq('program_id', program_id).order('day_number').execute()
+        df = pd.DataFrame(response.data)
+        
+        if not df.empty:
+            # Renommer les colonnes pour correspondre à ce que l'app attend (format CSV original)
+            df = df.rename(columns={
+                'day_number': 'Jour',
+                'workout_type': 'Type',
+                'exercise_name': 'Exercice',
+                'sets': 'Séries',
+                'reps_rpe': 'Répétitions (RPE)',
+                'notes': 'Notes'
+            })
+        return df
+    except Exception as e:
+        st.error(f"Erreur chargement détails programme: {str(e)}")
+        return pd.DataFrame()

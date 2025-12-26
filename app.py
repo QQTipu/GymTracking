@@ -61,6 +61,9 @@ if 'target_body_weight_date' not in st.session_state:
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 
+if 'selected_program_id' not in st.session_state:
+    st.session_state.selected_program_id = 1  # ID par défaut
+
 # Charger les données depuis Supabase
 if not st.session_state.data_loaded:
     # S'assurer que le client utilise le bon token
@@ -76,6 +79,7 @@ if not st.session_state.data_loaded:
         st.session_state.body_weight_history = data.get('body_weight_history', {})
         st.session_state.target_body_weight = data.get('target_body_weight', 0.0)
         st.session_state.target_body_weight_date = data.get('target_body_weight_date', None)
+        st.session_state.selected_program_id = data.get('selected_program_id', 1)
     st.session_state.data_loaded = True
 
 # Fonction pour sauvegarder toutes les données
@@ -87,7 +91,8 @@ def save_all_data():
         'skipped_exercises': st.session_state.skipped_exercises,
         'body_weight_history': st.session_state.body_weight_history,
         'target_body_weight': st.session_state.target_body_weight,
-        'target_body_weight_date': st.session_state.target_body_weight_date
+        'target_body_weight_date': st.session_state.target_body_weight_date,
+        'selected_program_id': st.session_state.selected_program_id
     }
     return database.save_workout_data(supabase, st.session_state.user.id, data)
 
@@ -110,13 +115,60 @@ page = st.sidebar.radio(
     ["📅 Séance du jour", "⚙️ Configuration", "📊 Historique", "📈 Statistiques"]
 )
 
-# Charger le programme
-df_programme = utils.load_programme()
-program_length = df_programme['Jour'].max()
+# Charger le programme actif depuis la DB
+df_programme = database.load_program_by_id(supabase, st.session_state.selected_program_id)
+
+if df_programme.empty:
+    st.error("⚠️ Impossible de charger le programme. Vérifiez la base de données.")
+    program_length = 1
+else:
+    program_length = df_programme['Jour'].max()
 
 # PAGE: Configuration
 if page == "⚙️ Configuration":
     st.header("⚙️ Configuration du programme")
+    
+    # --- SÉLECTION DU PROGRAMME ---
+    st.subheader("📚 Choix du programme")
+    
+    # Récupérer la liste des programmes
+    available_programs = database.get_all_programs(supabase)
+    
+    if available_programs:
+        # Créer un dictionnaire pour le selectbox {Nom: ID}
+        prog_options = {p['name']: p['id'] for p in available_programs}
+        
+        # Trouver l'index du programme actuel
+        current_index = 0
+        current_id = st.session_state.selected_program_id
+        for i, p in enumerate(available_programs):
+            if p['id'] == current_id:
+                current_index = i
+                break
+        
+        selected_name = st.selectbox(
+            "Programme actif",
+            options=list(prog_options.keys()),
+            index=current_index
+        )
+        
+        new_program_id = prog_options[selected_name]
+        
+        # Afficher la description
+        description = next((p['description'] for p in available_programs if p['id'] == new_program_id), "")
+        if description:
+            st.caption(f"ℹ️ {description}")
+            
+        if new_program_id != st.session_state.selected_program_id:
+            if st.button("🔄 Changer de programme"):
+                st.session_state.selected_program_id = new_program_id
+                save_all_data()
+                st.success(f"Programme changé pour : {selected_name}")
+                st.rerun()
+    else:
+        st.warning("Aucun programme trouvé dans la base de données.")
+    
+    st.markdown("---")
     
     st.subheader("📆 Date de début du programme")
     

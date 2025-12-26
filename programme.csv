@@ -1,4 +1,4 @@
-Jour,Type,Exercice,Séries,Répétitions (RPE),Notes
+day_number,workout_type,exercise_name,sets,reps_rpe,notes
 1,PUSH #1,Développé incliné haltères ou barre,3,6-8 (RPE 8.5),Focus Haut des Pecs
 1,PUSH #1,Développé couché machine ou barre,3,8-10 (RPE 9),
 1,PUSH #1,Élévations latérales aux câbles,3,12-15 (RPE 9),Isoler le deltoïde latéral
@@ -33,4 +33,4 @@ Jour,Type,Exercice,Séries,Répétitions (RPE),Notes
 6,LEGS #2,Hip Thrust (Poussée de hanche),3,8-12 (RPE 8.5),Fessiers
 6,LEGS #2,Mollets assis machine,4,15-20 (RPE 9),
 6,LEGS #2,Planche lestée ou Ab Wheel,3,Au max/10-15 reps,Sangle abdominale
-7,Repos,,,,
+7,Repos,,0,,
