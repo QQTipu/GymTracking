@@ -727,27 +727,28 @@ elif page == "📈 Statistiques":
                 # Calculer le volume total de la séance
                 total_volume = sum([w for w in weights.values() if w > 0])
                 
-                # Déterminer la catégorie
-                if 'PUSH' in workout_type:
-                    category = 'PUSH'
-                    color = '#FF6B6B'
-                elif 'PULL' in workout_type:
-                    category = 'PULL'
-                    color = '#4ECDC4'
-                elif 'LEGS' in workout_type or 'LEG' in workout_type:
-                    category = 'LEGS'
-                    color = '#95E1D3'
-                else:
-                    category = 'Autre'
-                    color = '#A8A8A8'
-                
-                volume_data.append({
-                    'date': date_str,
-                    'volume': total_volume,
-                    'type': category,
-                    'color': color,
-                    'workout_name': workout_type
-                })
+                if total_volume > 0:
+                    # Déterminer la catégorie
+                    if 'PUSH' in workout_type:
+                        category = 'PUSH'
+                        color = '#FF6B6B'
+                    elif 'PULL' in workout_type:
+                        category = 'PULL'
+                        color = '#4ECDC4'
+                    elif 'LEGS' in workout_type or 'LEG' in workout_type:
+                        category = 'LEGS'
+                        color = '#95E1D3'
+                    else:
+                        category = 'Autre'
+                        color = '#A8A8A8'
+                    
+                    volume_data.append({
+                        'date': date_str,
+                        'volume': total_volume,
+                        'type': category,
+                        'color': color,
+                        'workout_name': workout_type
+                    })
             
             if volume_data:
                 df_volume = pd.DataFrame(volume_data)
