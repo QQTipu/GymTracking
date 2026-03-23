@@ -1,5 +1,40 @@
 import streamlit as st
 import database
+import json
+import os
+import base64
+
+AUTH_FILE = ".gymtracking_auth.json"
+
+def save_auth_state(username, password):
+    """Sauvegarde les accès en local pour persister la session"""
+    try:
+        # Obfuscation basique pour ne pas stocker en clair pur
+        encoded_pw = base64.b64encode(password.encode()).decode()
+        with open(AUTH_FILE, "w") as f:
+            json.dump({"username": username, "password": encoded_pw}, f)
+    except Exception as e:
+        print(f"Erreur sauvegarde auth: {e}")
+
+def load_auth_state():
+    """Charge les accès locaux si présents"""
+    try:
+        if os.path.exists(AUTH_FILE):
+            with open(AUTH_FILE, "r") as f:
+                data = json.load(f)
+                pw = base64.b64decode(data["password"].encode()).decode()
+                return data["username"], pw
+    except Exception as e:
+        print(f"Erreur chargement auth: {e}")
+    return None, None
+
+def clear_auth_state():
+    """Supprime la session locale lors de la déconnexion"""
+    try:
+        if os.path.exists(AUTH_FILE):
+            os.remove(AUTH_FILE)
+    except:
+        pass
 
 def login_page(supabase):
     """Affiche la page de connexion"""
@@ -29,6 +64,7 @@ def login_page(supabase):
                         st.session_state.user = user
                         st.session_state.session = session
                         st.session_state.username = username
+                        save_auth_state(username, password)
                         st.success("✅ Connexion réussie !")
                         st.rerun()
                     else:

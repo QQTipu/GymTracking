@@ -25,6 +25,16 @@ supabase = database.init_supabase()
 # Initialiser l'état de connexion
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
+    
+    # Tentative d'auto-connexion
+    stored_user, stored_pw = auth.load_auth_state()
+    if stored_user and stored_pw:
+        user, session, error = database.login_user(supabase, stored_user, stored_pw)
+        if user and session:
+            st.session_state.logged_in = True
+            st.session_state.user = user
+            st.session_state.session = session
+            st.session_state.username = stored_user
 
 # Vérifier si l'utilisateur est connecté
 if not st.session_state.logged_in:
@@ -290,11 +300,11 @@ if 'workout_active' in st.session_state and st.session_state.workout_active:
                 st.components.v1.html(
                     f"""
                     <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; height: 160px; font-family: 'Inter', 'Segoe UI', sans-serif;">
-                        <div style="font-size: 72px; font-weight: 800; color: #4ECDC4; letter-spacing: 4px;">
+                        <div style="font-size: 72px; font-weight: 800; color: #00F0FF; letter-spacing: 4px;">
                             <span id="timer">{time_left // 60:02d}:{time_left % 60:02d}</span>
                         </div>
                         <div style="margin-top: 12px; width: 200px; height: 6px; background: #333; border-radius: 3px; overflow: hidden;">
-                            <div id="bar" style="height: 100%; width: {(time_left / 90) * 100:.1f}%; background: linear-gradient(90deg, #4ECDC4, #44B09E); border-radius: 3px; transition: width 1s linear;"></div>
+                            <div id="bar" style="height: 100%; width: {(time_left / 90) * 100:.1f}%; background: linear-gradient(90deg, #00F0FF, #00B8CC); border-radius: 3px; transition: width 1s linear;"></div>
                         </div>
                     </div>
                     <script>
@@ -307,7 +317,7 @@ if 'workout_active' in st.session_state and st.session_state.workout_active:
                             if (timeLeft <= 0) {{
                                 clearInterval(interval);
                                 timerEl.innerHTML = "00:00";
-                                timerEl.style.color = "#FF6B6B";
+                                timerEl.style.color = "#FF4B4B";
                                 barEl.style.width = "0%";
                             }} else {{
                                 var m = Math.floor(timeLeft / 60);
@@ -337,6 +347,7 @@ with col1:
 with col2:
     st.write(f"👤 {st.session_state.username}")
     if st.button("🚪 Déconnexion"):
+        auth.clear_auth_state()
         database.logout_user(supabase)
         st.session_state.clear()
         st.rerun()
