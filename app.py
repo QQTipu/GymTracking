@@ -25,6 +25,16 @@ supabase = database.init_supabase()
 # Initialiser l'état de connexion
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
+    
+    # Tentative d'auto-connexion
+    stored_user, stored_pw = auth.load_auth_state()
+    if stored_user and stored_pw:
+        user, session, error = database.login_user(supabase, stored_user, stored_pw)
+        if user and session:
+            st.session_state.logged_in = True
+            st.session_state.user = user
+            st.session_state.session = session
+            st.session_state.username = stored_user
 
 # Vérifier si l'utilisateur est connecté
 if not st.session_state.logged_in:
@@ -96,6 +106,240 @@ def save_all_data():
     }
     return database.save_workout_data(supabase, st.session_state.user.id, data)
 
+# ============= MODE IMMERSIF D'ENTRAÎNEMENT =============
+# Si l'entraînement est actif, afficher UNIQUEMENT le mode immersif
+if 'workout_active' in st.session_state and st.session_state.workout_active:
+    # Vérifier que les variables nécessaires existent (protection contre sessions périmées)
+    if 'workout_date_str' not in st.session_state or st.session_state.workout_date_str is None:
+        st.session_state.workout_active = False
+        st.rerun()
+    
+    # Cacher la sidebar, le header, et le footer Streamlit
+    st.markdown("""
+    <style>
+        [data-testid="stSidebar"] { display: none !important; }
+        [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+        header[data-testid="stHeader"] { display: none !important; }
+        #MainMenu { display: none !important; }
+        footer { display: none !important; }
+        .stDeployButton { display: none !important; }
+        [data-testid="stToolbar"] { display: none !important; }
+        .block-container { padding-top: 1rem !important; max-width: 700px !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Charger le programme pour la séance
+    df_programme_workout = database.load_program_by_id(supabase, st.session_state.selected_program_id)
+    if df_programme_workout.empty:
+        st.error("Impossible de charger le programme.")
+        st.session_state.workout_active = False
+        st.rerun()
+
+    wk_date_str = st.session_state.workout_date_str
+    wk_day_number = st.session_state.workout_day_number
+    wk_type = st.session_state.workout_type_name
+    program_length_wk = df_programme_workout['Jour'].max()
+    day_in_cycle_wk = (wk_day_number - 1) % program_length_wk + 1
+    day_workout_wk = df_programme_workout[df_programme_workout['Jour'] == day_in_cycle_wk]
+
+    # Exercices actifs
+    active_exercises_wk = []
+    for _, row in day_workout_wk.iterrows():
+        exercise_key = f"{wk_date_str}_{row['Exercice']}"
+        if not st.session_state.skipped_exercises.get(exercise_key, False):
+            active_exercises_wk.append(row)
+
+    # --- EN-TÊTE IMMERSIF ---
+    col_title, col_quit = st.columns([3, 1])
+    with col_title:
+        st.markdown(f"## 🏋️ {wk_type}")
+        progress_text = f"Exercice {min(st.session_state.current_ex_idx + 1, len(active_exercises_wk))} / {len(active_exercises_wk)}"
+        st.caption(progress_text)
+    with col_quit:
+        if st.button("✖️ Quitter", use_container_width=True):
+            st.session_state.workout_active = False
+            st.rerun()
+
+    # Barre de progression
+    if len(active_exercises_wk) > 0:
+        progress_val = st.session_state.current_ex_idx / len(active_exercises_wk)
+        st.progress(min(progress_val, 1.0))
+
+    st.markdown("---")
+
+    # --- SÉANCE TERMINÉE ---
+    if st.session_state.current_ex_idx >= len(active_exercises_wk):
+        st.markdown("# 🎉 Bravo !")
+        st.success("Séance terminée !")
+
+        # Résumé des poids
+        st.write("### 📋 Résumé")
+        for ex_row in active_exercises_wk:
+            weights_for_ex = []
+            for s in range(int(ex_row['Séries'])):
+                k = f"{wk_date_str}_{ex_row['Exercice']}_{s}"
+                w = st.session_state.current_weights.get(k, 0.0)
+                if w > 0:
+                    weights_for_ex.append(f"S{s+1}: {w}kg")
+            if weights_for_ex:
+                st.write(f"**{ex_row['Exercice']}** → {' | '.join(weights_for_ex)}")
+
+        st.markdown("---")
+        if st.button("✅ Enregistrer la séance", type="primary", use_container_width=True):
+            st.session_state.history[wk_date_str] = {
+                'workout_type': wk_type,
+                'day_number': wk_day_number,
+                'weights': st.session_state.current_weights,
+                'timestamp': datetime.now().isoformat()
+            }
+            if save_all_data():
+                st.session_state.workout_active = False
+                st.balloons()
+                st.rerun()
+
+    # --- EXERCICE EN COURS ---
+    else:
+        current_row = active_exercises_wk[st.session_state.current_ex_idx]
+        ex_name = current_row['Exercice']
+        total_sets = int(current_row['Séries'])
+        curr_set = st.session_state.current_set_idx
+        exercise_key = f"{wk_date_str}_{ex_name}"
+
+        if st.session_state.workout_phase == "lifting":
+            st.markdown(f"### 💪 {ex_name}")
+            st.markdown(f"**Série {curr_set + 1} / {total_sets}** — {current_row['Répétitions (RPE)']}")
+
+            # Stats
+            last_max, all_time_max = utils.get_exercise_stats(
+                ex_name,
+                st.session_state.history,
+                df_programme_workout,
+                program_length_wk,
+                current_date_str=wk_date_str
+            )
+            if all_time_max is not None:
+                st.caption(f"💡 Dernier max : {last_max} kg | Record : {all_time_max} kg")
+            if pd.notna(current_row['Notes']) and current_row['Notes']:
+                st.info(f"📝 {current_row['Notes']}")
+
+            # Poids input
+            key_weight = f"{wk_date_str}_{ex_name}_{curr_set}"
+            prev_weight = 0.0
+            if curr_set > 0:
+                prev_key = f"{wk_date_str}_{ex_name}_{curr_set - 1}"
+                prev_weight = st.session_state.current_weights.get(prev_key, 0.0)
+            default_val = st.session_state.current_weights.get(key_weight, prev_weight)
+
+            weight_input = st.number_input(
+                "Poids (kg)",
+                min_value=0.0, max_value=500.0, step=0.5,
+                value=float(default_val),
+                key="immersive_weight_input"
+            )
+
+            # Séries déjà validées (recap visuel)
+            if curr_set > 0:
+                chips = []
+                for s in range(curr_set):
+                    k = f"{wk_date_str}_{ex_name}_{s}"
+                    w = st.session_state.current_weights.get(k, 0.0)
+                    chips.append(f"S{s+1}: {w}kg")
+                st.caption("✅ " + " | ".join(chips))
+
+            st.markdown("---")
+
+            # Boutons d'action
+            if st.button(f"✅ Valider la série {curr_set + 1}", type="primary", use_container_width=True):
+                st.session_state.current_weights[key_weight] = weight_input
+                # Avancer
+                if curr_set + 1 >= total_sets:
+                    st.session_state.current_ex_idx += 1
+                    st.session_state.current_set_idx = 0
+                    if st.session_state.current_ex_idx >= len(active_exercises_wk):
+                        st.session_state.workout_phase = "lifting"
+                    else:
+                        st.session_state.workout_phase = "resting"
+                        st.session_state.rest_end_time = datetime.now().timestamp() + 90
+                else:
+                    st.session_state.current_set_idx += 1
+                    st.session_state.workout_phase = "resting"
+                    st.session_state.rest_end_time = datetime.now().timestamp() + 90
+                st.rerun()
+
+            # Navigation
+            nav1, nav2 = st.columns(2)
+            with nav1:
+                if st.session_state.current_ex_idx > 0:
+                    if st.button("🔙 Exercice précédent", use_container_width=True):
+                        st.session_state.current_ex_idx -= 1
+                        st.session_state.current_set_idx = 0
+                        st.session_state.workout_phase = "lifting"
+                        st.rerun()
+            with nav2:
+                if st.button("⏭️ Passer l'exercice", use_container_width=True):
+                    st.session_state.skipped_exercises[exercise_key] = True
+                    st.session_state.current_ex_idx += 1
+                    st.session_state.current_set_idx = 0
+                    st.session_state.workout_phase = "lifting"
+                    save_all_data()
+                    st.rerun()
+
+        elif st.session_state.workout_phase == "resting":
+            # Prochain exercice/série à venir
+            if st.session_state.current_ex_idx < len(active_exercises_wk):
+                next_ex = active_exercises_wk[st.session_state.current_ex_idx]['Exercice']
+                next_set = st.session_state.current_set_idx + 1
+                st.markdown(f"### ⏱️ Repos")
+                st.caption(f"Prochain : **{next_ex}** — Série {next_set}")
+            else:
+                st.markdown("### ⏱️ Repos")
+
+            time_left = max(0, int(st.session_state.rest_end_time - datetime.now().timestamp()))
+
+            if time_left > 0:
+                st.components.v1.html(
+                    f"""
+                    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; height: 160px; font-family: 'Inter', 'Segoe UI', sans-serif;">
+                        <div style="font-size: 72px; font-weight: 800; color: #00F0FF; letter-spacing: 4px;">
+                            <span id="timer">{time_left // 60:02d}:{time_left % 60:02d}</span>
+                        </div>
+                        <div style="margin-top: 12px; width: 200px; height: 6px; background: #333; border-radius: 3px; overflow: hidden;">
+                            <div id="bar" style="height: 100%; width: {(time_left / 90) * 100:.1f}%; background: linear-gradient(90deg, #00F0FF, #00B8CC); border-radius: 3px; transition: width 1s linear;"></div>
+                        </div>
+                    </div>
+                    <script>
+                        var timeLeft = {time_left};
+                        var totalTime = 90;
+                        var timerEl = document.getElementById('timer');
+                        var barEl = document.getElementById('bar');
+                        var interval = setInterval(function() {{
+                            timeLeft--;
+                            if (timeLeft <= 0) {{
+                                clearInterval(interval);
+                                timerEl.innerHTML = "00:00";
+                                timerEl.style.color = "#FF4B4B";
+                                barEl.style.width = "0%";
+                            }} else {{
+                                var m = Math.floor(timeLeft / 60);
+                                var s = timeLeft % 60;
+                                timerEl.innerHTML = (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+                                barEl.style.width = ((timeLeft / totalTime) * 100) + "%";
+                            }}
+                        }}, 1000);
+                    </script>
+                    """, height=200
+                )
+            else:
+                st.success("⏰ Temps écoulé — C'est parti !")
+
+            st.markdown("---")
+            if st.button("⏭️ Série suivante", type="primary", use_container_width=True):
+                st.session_state.workout_phase = "lifting"
+                st.session_state.rest_end_time = None
+                st.rerun()
+
+    st.stop()  # Ne rien afficher d'autre en mode immersif
+
 # Header avec bouton de déconnexion
 col1, col2 = st.columns([4, 1])
 with col1:
@@ -103,6 +347,7 @@ with col1:
 with col2:
     st.write(f"👤 {st.session_state.username}")
     if st.button("🚪 Déconnexion"):
+        auth.clear_auth_state()
         database.logout_user(supabase)
         st.session_state.clear()
         st.rerun()
@@ -382,22 +627,52 @@ elif page == "📅 Séance du jour":
         else:
             st.subheader(f"🏋️ {workout_type}")
             
+            # --- INITIALISATION SESSION STATE WORKOUT ---
+            if 'workout_active' not in st.session_state:
+                st.session_state.workout_active = False
+            if 'current_ex_idx' not in st.session_state:
+                st.session_state.current_ex_idx = 0
+            if 'current_set_idx' not in st.session_state:
+                st.session_state.current_set_idx = 0
+            if 'workout_phase' not in st.session_state:
+                st.session_state.workout_phase = "lifting"
+            if 'rest_end_time' not in st.session_state:
+                st.session_state.rest_end_time = None
+            if 'workout_date_str' not in st.session_state:
+                st.session_state.workout_date_str = None
+            if 'workout_day_number' not in st.session_state:
+                st.session_state.workout_day_number = None
+            if 'workout_type_name' not in st.session_state:
+                st.session_state.workout_type_name = None
+
             # Afficher si la séance est déjà complétée
             if date_str in st.session_state.history:
                 st.success("✅ Séance déjà enregistrée pour cette date")
             
-            # Charger les poids existants pour cette date si disponibles
+            # Charger les poids existants pour cette date
             if date_str in st.session_state.history:
                 st.session_state.current_weights = st.session_state.history[date_str].get('weights', {})
             else:
-                st.session_state.current_weights = {}
-            
-            # Afficher chaque exercice
+                if 'current_weights' not in st.session_state or not st.session_state.workout_active:
+                    st.session_state.current_weights = {}
+
+            # Liste des exercices actifs (non skippés)
+            active_exercises = []
+            for idx, row in day_workout.iterrows():
+                exercise_key = f"{date_str}_{row['Exercice']}"
+                if not st.session_state.skipped_exercises.get(exercise_key, False):
+                    active_exercises.append(row)
+
+            # ============================================================
+            # VUE PRINCIPALE : Expanders éditables + bouton Commencer
+            # ============================================================
+            st.write("### 📋 Programme de la séance")
+
             for idx, row in day_workout.iterrows():
                 exercise_key = f"{date_str}_{row['Exercice']}"
                 is_exercise_skipped = st.session_state.skipped_exercises.get(exercise_key, False)
-                
-                with st.expander(f"**{row['Exercice']}**", expanded=not is_exercise_skipped):
+
+                with st.expander(f"**{row['Exercice']}** - {int(row['Séries'])} séries de {row['Répétitions (RPE)']}", expanded=not is_exercise_skipped):
                     # Bouton pour skip l'exercice
                     col_skip1, col_skip2 = st.columns([3, 1])
                     with col_skip2:
@@ -416,49 +691,49 @@ elif page == "📅 Séance du jour":
                                         del st.session_state.current_weights[key]
                                 save_all_data()
                                 st.rerun()
-                    
+
                     if is_exercise_skipped:
                         st.warning("⏭️ Exercice skippé - aucune donnée ne sera enregistrée")
                     else:
                         col1, col2 = st.columns([2, 1])
-                        
+
                         with col1:
                             st.write(f"**Répétitions:** {row['Répétitions (RPE)']}")
-                            
+
                             # Récupérer et afficher les stats de l'exercice
                             last_max, all_time_max = utils.get_exercise_stats(
-                                row['Exercice'], 
-                                st.session_state.history, 
-                                df_programme, 
-                                program_length, 
+                                row['Exercice'],
+                                st.session_state.history,
+                                df_programme,
+                                program_length,
                                 current_date_str=date_str
                             )
-                            
+
                             notes_and_stats = []
                             if pd.notna(row['Notes']) and row['Notes']:
                                 notes_and_stats.append(f"📝 {row['Notes']}")
-                            
+
                             if all_time_max is not None:
                                 if last_max == all_time_max:
                                     notes_and_stats.append(f"**Dernier max :** {last_max} kg (🏅 Record)")
                                 else:
                                     notes_and_stats.append(f"**Dernier max :** {last_max} kg | **Record :** {all_time_max} kg")
-                            
+
                             if notes_and_stats:
                                 st.caption(" | ".join(notes_and_stats))
-                        
+
                         with col2:
                             st.write(f"**Séries:** {int(row['Séries'])}")
-                        
+
                         # Inputs pour les poids de chaque série
                         st.write("**Poids de travail (kg):**")
                         cols = st.columns(int(row['Séries']))
-                        
+
                         for serie_num in range(int(row['Séries'])):
                             with cols[serie_num]:
                                 key = f"{date_str}_{row['Exercice']}_{serie_num}"
                                 default_value = st.session_state.current_weights.get(key, 0.0)
-                                
+
                                 weight = st.number_input(
                                     f"Série {serie_num + 1}",
                                     min_value=0.0,
@@ -468,25 +743,22 @@ elif page == "📅 Séance du jour":
                                     key=key
                                 )
                                 st.session_state.current_weights[key] = weight
-            
+
             st.markdown("---")
-            
-            # Bouton pour sauvegarder la séance
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                if st.button("✅ Enregistrer la séance", type="primary", use_container_width=True):
+
+            # Boutons : Enregistrer et Commencer la séance
+            col_save, col_start = st.columns(2)
+            with col_save:
+                if st.button("💾 Enregistrer la séance", type="secondary", use_container_width=True):
                     # Filtrer les poids pour exclure les exercices skippés
                     filtered_weights = {}
                     for key, weight in st.session_state.current_weights.items():
-                        # Extraire l'index de l'exercice de la clé
                         parts = key.split('_')
                         if len(parts) >= 3:
                             exercise_key = f"{parts[0]}_{'_'.join(parts[1:-1])}"
-                            # N'inclure que si l'exercice n'est pas skippé
                             if not st.session_state.skipped_exercises.get(exercise_key, False):
                                 filtered_weights[key] = weight
-                    
-                    # Sauvegarder dans l'historique
+
                     st.session_state.history[date_str] = {
                         'workout_type': workout_type,
                         'day_number': day_number,
@@ -496,6 +768,18 @@ elif page == "📅 Séance du jour":
                     if save_all_data():
                         st.success("✅ Séance enregistrée avec succès !")
                         st.balloons()
+
+            with col_start:
+                if len(active_exercises) > 0:
+                    if st.button("▶️ Commencer la séance", type="primary", use_container_width=True):
+                        st.session_state.workout_active = True
+                        st.session_state.current_ex_idx = 0
+                        st.session_state.current_set_idx = 0
+                        st.session_state.workout_phase = "lifting"
+                        st.session_state.workout_date_str = date_str
+                        st.session_state.workout_day_number = day_number
+                        st.session_state.workout_type_name = workout_type
+                        st.rerun()
 
 # PAGE: Historique
 elif page == "📊 Historique":

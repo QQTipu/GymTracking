@@ -1,19 +1,19 @@
 [theme]
-primaryColor = "#bb5a38"
-backgroundColor = "#f4f3ed"
-secondaryBackgroundColor = "#ecebe3"
-textColor = "#3d3a2a"
-linkColor = "#3d3a2a"
-borderColor = "#d3d2ca"
+primaryColor = "#FF4B4B"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#1A1D26"
+textColor = "#E8EAED"
+linkColor = "#FF4B4B"
+borderColor = "#2D3139"
 showWidgetBorder = true
-baseRadius = "0.6rem"
+baseRadius = "0.5rem"
 codeFont = "Fira Code:https://fonts.googleapis.com/css2?family=Fira+Code:wght@300..700&display=swap"
-codeBackgroundColor = "#ecebe4"
-showSidebarBorder = true
-headingFontSizes = ["40px", "32px", "24px"]
-headingFontWeights = 500
+codeBackgroundColor = "#1A1D26"
+showSidebarBorder = false
+headingFontSizes = ["42px", "34px", "26px"]
+headingFontWeights = 700
 
 
 [theme.sidebar]
-backgroundColor = "#e8e7dd"
-secondaryBackgroundColor = "#ecebe3"
+backgroundColor = "#151921"
+secondaryBackgroundColor = "#1A1D26"
