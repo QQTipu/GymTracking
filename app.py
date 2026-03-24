@@ -672,7 +672,7 @@ elif page == "📅 Séance du jour":
                 exercise_key = f"{date_str}_{row['Exercice']}"
                 is_exercise_skipped = st.session_state.skipped_exercises.get(exercise_key, False)
 
-                with st.expander(f"**{row['Exercice']}** - {int(row['Séries'])} séries de {row['Répétitions (RPE)']}", expanded=not is_exercise_skipped):
+                with st.expander(f"**{row['Exercice']}** - {int(row['Séries'])} séries de {row['Répétitions (RPE)']}", expanded=False):
                     # Bouton pour skip l'exercice
                     col_skip1, col_skip2 = st.columns([3, 1])
                     with col_skip2:
